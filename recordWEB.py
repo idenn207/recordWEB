@@ -386,6 +386,24 @@ async def requireLogin(request: Request):
     raise HTTPException(status_code=401, detail="Login required")
 
 
+# 라우트마다 Depends(requireLogin)을 붙이는 방식은 새 라우트가 추가될 때마다
+# 빠뜨리기 쉽다(실제로 여러 차례 그랬다). 대신 이 시점 이후 등록되는 모든
+# 라우트에 기본 적용되는 라우터 레벨 의존성으로 인증을 강제한다 — 이 파일의
+# 모든 @app.get/post/put/delete 데코레이터는 이 지점보다 아래(760행 이후)에
+# 있으므로 전부 적용 대상이다. 공개가 필요한 경로만 명시적으로 예외 처리한다.
+_PUBLIC_PATHS = {"/", "/login", "/register", "/logout"}
+
+
+async def enforceLoginGlobally(request: Request):
+    path = request.url.path
+    if path in _PUBLIC_PATHS or path.startswith("/static/"):
+        return True
+    return await requireLogin(request)
+
+
+app.router.dependencies.append(Depends(enforceLoginGlobally))
+
+
 # 자동 녹화 모드 함수
 async def autoRecording(app: FastAPI):
     cfg = app.state.config

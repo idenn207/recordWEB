@@ -1,22 +1,40 @@
-# Plan: recordWEB NAS Docker 배포 (자동 스트리밍 녹화) — v4
+# Plan: recordWEB NAS Docker 배포 (자동 스트리밍 녹화) — v5
 
 **Source**: 대화형 요청 (free-form, PRD 없음)
 **Complexity**: Medium
-**Revision**: v1(4/4 fail, CRITICAL 2건) → v2(코드 수정에도 4/4 fail, CRITICAL 1건 신규) → v3(라우트 patch 대신 루프백 바인딩으로 전략 전환, architect 통과·security만 fail) → v4: architect가 확정한 "무인증 라우트는 `/api/config`, `/get_config`, `/api/yt_potoken`(GET/POST) 4개뿐"이라는 범위를 근거로 이 4개를 직접 patch(루프백 바인딩은 심층 방어로 유지)
+**Revision**: v1~v4는 라우트 단위로 인증을 opt-in 추가하는 방식이었고, 매 라운드 리뷰에서 "또 다른 무인증 라우트"가 새로 발견됐다(v2: 다수, v3: 4개, v4: 4개 더). v5는 **라우터 레벨 전역 의존성**으로 구조 자체를 바꿔 이 whack-a-mole을 구조적으로 종료한다.
 
 ## Summary
 `recordWEB.py`(FastAPI 기반 웹 UI + 녹화 엔진)를 Synology NAS(DSM 7.3.2, Container Manager/Docker 24.0.2)에 Docker로 배포해, 로컬 PC 전원 상태와 무관하게 24시간 자동 스트리밍 녹화가 되도록 한다. 배포 설정(compose/Dockerfile/시크릿)은 `volume3`에, 실제 녹화 영상은 `volume1`에 저장한다.
 
-**v3의 핵심 전환**: v1/v2 리뷰에서 `/config`(POST), `/api/config`, `/api/yt_potoken`(GET/POST), `/get_config` 등 애초에 `Depends(requireLogin)`이 붙지 않은 라우트가 계속 발견됐다(2라운드 연속, 매번 새로운 구멍). 45개 라우트를 전수 감사해 개별 patch하는 것은 시간 대비 리스크가 높고 "또 놓친 라우트"가 나올 가능성을 배제할 수 없다. 따라서 **컨테이너 포트를 애초에 LAN/WAN에 노출하지 않고 NAS 루프백(127.0.0.1)에만 바인딩**해, 앱 자체의 라우트별 인증 커버리지와 무관하게 "NAS에 SSH/로컬 접근 권한이 있는 사람만 UI에 도달 가능"이라는 하나의 경계로 위협을 좁힌다. 이는 원래 Windows 데스크톱 앱이 "내 PC에서만 열려있는 로컬 서버"였던 신뢰 모델과 동일하다. `requireLogin`의 실제 버그(raise 누락)는 그대로 수정해 두지만, 심층 방어 차원이며 배포의 1차 방어선은 아니다.
+## v5의 핵심 변경 — 라우트별 opt-in에서 라우터 전역 강제로
+FastAPI는 `APIRouter.add_api_route()` 호출 시점에 `self.dependencies`(라우터 레벨 기본 의존성 목록)를 복사해 각 라우트에 결합한다(`current_dependencies = self.dependencies.copy()`, 로컬 FastAPI 0.136.1 소스로 직접 확인). 즉 **이 리스트에 추가한 시점 이후 등록되는 모든 라우트는 자동으로 그 의존성을 상속**하며, 라우트 데코레이터마다 개별적으로 `Depends(requireLogin)`을 붙이고 빠뜨리는 실수가 구조적으로 불가능해진다.
+
+`recordWEB.py`에서 `requireLogin` 정의 직후(404행)에 다음을 추가했다:
+```python
+_PUBLIC_PATHS = {"/", "/login", "/register", "/logout"}
+
+async def enforceLoginGlobally(request: Request):
+    path = request.url.path
+    if path in _PUBLIC_PATHS or path.startswith("/static/"):
+        return True
+    return await requireLogin(request)
+
+app.router.dependencies.append(Depends(enforceLoginGlobally))
+```
+파일 내 모든 `@app.get/post/put/delete` 데코레이터는 778행 이후에 있음을 grep으로 확인했다(47개 전부, 404행보다 뒤) — 즉 이 시점 이후 등록되는 라우트가 정확히 전체 라우트 집합과 일치한다. `/`, `/login`, `/register`, `/logout`, `/static/*`만 명시적으로 예외 처리했고, `/`는 `index()` 핸들러가 이미 내부적으로 loginMode/세션을 검사해 비로그인 시 제한된 화면만 보여주므로 이중 보호가 불필요하다.
+
+루프백 바인딩(v3에서 도입)은 심층 방어로 그대로 유지한다.
 
 ## Patterns to Mirror
 | Category | Source | Pattern |
 |---|---|---|
 | Docker 배포 위치 | `/volume3/docker/terab/` (기존 서비스) | `/volume3/docker/<project>/`에 compose+env+secrets 배치 |
 | 데이터 볼륨 | `/volume1/storage/terab-files/` | `/volume1/storage/<project>-files/`에 대용량 데이터 저장 |
-| 진입점 | `recordWEB.py:2469` 함수 `runUvicorn` | `uvicorn.Config(app, host="0.0.0.0", port=port)` — 컨테이너 내부는 그대로 0.0.0.0, 외부 노출은 compose 포트 매핑에서 loopback으로 제한 (실행은 `recordWEB.py:2565` `if __name__=="__main__"`에서 트리거) |
-| 예외 처리 | `recordWEB.py:343-351` `http_exception_handler` | `HTTPException(status_code=401)`만 `RedirectResponse('/login')`으로 변환하고 그 외 status_code는 헤더 없이 JSON으로 변환 — 401 외 코드로 리다이렉트를 시도하면 무력화됨 |
-| 계정 부재 감지 | `module/data_manager.py:629-644` `loadAccount()` | `username`/`password`가 null이면 `None` 반환 → `/register`로 최초 계정 생성 유도 |
+| 진입점 | `recordWEB.py` 함수 `runUvicorn`(uvicorn 설정) / `if __name__=="__main__"` 블록(실행 트리거) | `uvicorn.Config(app, host="0.0.0.0", port=port)` — 컨테이너 내부는 그대로 0.0.0.0, 외부 노출은 compose 포트 매핑에서 loopback으로 제한 |
+| 예외 처리 | `recordWEB.py` `http_exception_handler` | `HTTPException(status_code=401)`만 `RedirectResponse('/login')`으로 변환 — `requireLogin`은 이 401 경로만 사용 |
+| 계정 부재 감지 | `module/data_manager.py` `loadAccount()` | `username`/`password`가 null이면 `None` 반환 → `/register`로 최초 계정 생성 유도 |
+| 라우터 전역 의존성 | FastAPI `APIRouter.add_api_route()` (`self.dependencies.copy()`) | 등록 시점 이후 모든 라우트가 상속 — v5의 구조적 인증 강제가 여기에 근거 |
 | 민감정보 제외 | `.gitignore` (이전 세션에 작성) | `json/` 전체가 시크릿/개인 상태 — 이미지에 굽지 않고 볼륨 마운트 |
 
 ## User Intent (참고 — free-form 대화 원문)
@@ -27,46 +45,39 @@
 | UI3 | 폴더 명칭은 NAS에서 직접 확인한 기존 패턴을 따를 것 | direction |
 | UI4 | 설정 가능한 GUI 지원 희망 | direction |
 | UI5 | 측정 가능한 성공 지표 = 치지직 "아카네 리제" 스트리밍이 실제로 녹화된 파일로 확인되는 것 | constraint |
-| UI6 | (2026-08-14) 리뷰 게이트가 CRITICAL을 이유로 2회 연속 차단한 뒤, 사용자가 "claude 판단으로 진행해줘"라고 위임 | direction |
+| UI6 | (2026-08-14) 리뷰 게이트가 CRITICAL/HIGH를 이유로 4라운드 연속 차단한 뒤, 사용자가 "claude 판단으로 진행해줘"라고 위임 | direction |
 
-## L2 리뷰(3라운드)에서 지적된 CRITICAL·HIGH와 그에 대한 대응
-| 라운드 | 지적 | 조치 |
+## 라운드별 지적과 대응 요약
+| 라운드 | 핵심 지적 | 조치 |
 |---|---|---|
-| v3 | (HIGH) architect가 v3의 근거 인용("`/config`(POST)가 무인증")이 사실과 다름을 확인 — 실제로는 이미 `Depends(requireLogin)`이 붙어 있었음. 대신 architect가 grep으로 전수 확인한 진짜 무인증 라우트는 `/api/config`(GET), `/get_config`(GET), `/api/yt_potoken`(GET/POST) 4개뿐 | 이 4개 라우트에 `Depends(requireLogin)`을 직접 추가(코드 수정 완료). 더 이상 "또 놓친 라우트가 있을 수 있다"는 불확실성이 아니라, architect가 확정한 유한 목록을 닫은 것 |
-| v3 | (HIGH) SSH 터널이 열려 있는 동안 관리자 브라우저에서 다른 사이트가 인증 필요 라우트로 cross-site POST를 보낼 수 있다는 CSRF 우려 | 확인 결과 `SessionMiddleware`의 기본 `same_site`는 `"lax"`(`recordWEB.py:334`, 파라미터 미지정)이며, Lax 쿠키는 cross-site POST에는 첨부되지 않는다 — 즉 `Depends(requireLogin)`이 붙은 라우트는 세션 쿠키 없이 요청이 들어가 401로 막힌다. 진짜 문제는 쿠키 없이도 그냥 통과하던 위 4개 무인증 라우트였고, 이미 patch했다 |
-| v3 | (MEDIUM) deno COPY 대상 PATH가 명시되지 않아 `shutil.which("deno")`가 못 찾을 수 있음 | Dockerfile에서 `denoland/deno` 이미지의 바이너리를 `/usr/local/bin/deno`로 명시적으로 COPY(이미 PATH 표준 위치) |
-| v3 | (MEDIUM) 컨테이너가 PID 1로 애플리케이션을 직접 실행해 좀비 프로세스 반응 주체가 없음 | `docker-compose.yml`에 `init: true` 추가(Docker 내장 tini로 PID 1 zombie reap) |
-| v3 | (LOW) 진입점 인용이 실제로는 `runUvicorn` 함수(2469행)를 가리켜야 하는데 `__main__` 블록(2565행)으로 잘못 인용됨 | 본 표의 Patterns to Mirror 인용을 정정 |
-| v1 | (CRITICAL) `loginMode:false`가 그대로 배포되어 웹 UI가 인증 없이 노출 | 배포용 `config.json`은 `loginMode:true`로 강제(방어의 일부, 아래 참고) |
-| v1 | (CRITICAL) `GET /cookies`가 인증 없이 세션 쿠키·PO 토큰을 평문 렌더링 | `requireLogin`의 raise 누락 버그 수정(아래 v2/v3 정정 포함) |
-| v2 | (HIGH, 신규) 303+Location 방식은 전역 예외 핸들러가 401만 리다이렉트로 바꾸고 그 외 코드는 헤더를 버려서 무력화됨 | `requireLogin`을 `HTTPException(status_code=401)`만 raise하도록 정정 — 기존에 이미 검증된 401→redirect 경로(343-351행)를 재사용 |
-| v2 | (CRITICAL, 신규) `/config`(POST) 등 애초에 `Depends(requireLogin)` 자체가 없는 라우트가 다수 존재 — 라우트 단위 patch로는 커버리지를 보장 못함 | **전략 전환**: 라우트 patch를 더 이상 추가하지 않고, compose 포트 게시를 127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)으로 제한해 NAS 외부에서 도달 자체가 불가능하게 만듦(Design Decisions 참고) |
-| v2 | (HIGH) `/register` 무인증 선착순 — 컨테이너 기동 시점과 관리자 등록 시점 사이 레이스 | 루프백 바인딩으로 애초에 외부에서 도달 불가 → 레이스의 공격자 모수가 "NAS에 로그인 가능한 사람"으로 좁혀짐(=이미 sudo 비밀번호를 아는 신뢰 당사자) |
-| v2 | (MEDIUM) `login.json`의 `secret_key`를 회전 없이 그대로 NAS로 이전 — 로컬에 남은 값으로 세션 위조 가능 | Task 5에서 NAS 배포본 `login.json`은 **새 `secret_key`로 재생성**(로컬 값 재사용 안 함) |
-| v1 | (HIGH) `getDeno()` 무가드 호출 → 미설치 시 `sys.exit(1)`로 전체 프로세스 종료 | Dockerfile에서 `denoland/deno` 공식 이미지 바이너리를 멀티스테이지 `COPY`로 항상 포함 |
-| v1/v2 | (HIGH) `install_missing_modules()`가 매 기동 시 네트워크 pip install 시도 | requirements.txt를 실제 목록과 1:1 일치(`pystray`/`pillow`/`py-cpuinfo` 포함) |
-| v2 | (HIGH) Task1 Validate가 `docker build` 로그를 보라고 했지만 해당 print는 `docker run`(CMD 실행) 시점에만 출력됨 | Validate를 `docker compose up` 로그 확인으로 정정 |
-| v1 | (MEDIUM) `dependent/plugin`이 `.dockerignore`로 함께 제외될 뻔함 | `dependent/plugin/`, `dependent/img/`는 명시적으로 keep |
-| v1 | (MEDIUM) 성공 지표 검증이 파일명 패턴에 의존 | mtime/크기 증가 확인을 주 검증으로, 파일명 grep은 보조 수단 |
-| v1 | (MEDIUM) 자격증명 NAS 이전에 rollback/백업, 로컬 인스턴스 중지 단계 없음 | Task 5 로컬 백업, Task 6 로컬 프로세스 중지 단계 추가 |
+| v1 | CRITICAL: `loginMode:false` 배포 + `/cookies` 평문 쿠키 노출 | `loginMode:true` 강제, `requireLogin` raise 버그 수정 |
+| v2 | CRITICAL: 303+Location이 전역 예외 핸들러에 의해 무력화, 다수 라우트가 애초에 무인증 | `requireLogin`을 401 경로로 정정, 루프백 바인딩으로 전략 전환(v3) |
+| v3 | HIGH: architect가 재확정한 무인증 라우트 4개(`/api/config`, `/get_config`, `/api/yt_potoken` GET/POST) | 4개 라우트에 개별 patch(v4) |
+| v4 | HIGH: 그마저도 완결이 아니었음 — `/status`, `/api/sys_metrics`, `/updateAccount`, `/user_info` 등 추가로 무인증 확인. 라우트별 opt-in 구조 자체가 신뢰할 수 없다는 지적 | **v5: 라우터 레벨 전역 `Depends`로 구조 전환** — 새 라우트가 추가돼도 명시적으로 예외 처리하지 않는 한 자동으로 인증이 걸림 |
+| v3 | MEDIUM: deno COPY 대상 PATH 미명시, PID 1 zombie reap 부재 | Dockerfile에서 `/usr/local/bin/deno`로 명시 COPY, compose에 `init: true` |
+| v1 | HIGH: `getDeno()` 무가드 호출로 프로세스 전체 종료 위험 | `denoland/deno` 이미지에서 바이너리 상시 포함 |
+| v1/v2 | HIGH: `install_missing_modules()` 매 기동 네트워크 pip install | requirements.txt를 실제 목록과 1:1 일치 |
+| v2 | HIGH: Task1 Validate 시점 오류(build vs run) | `docker compose up` 로그 확인으로 정정 |
+| v1 | MEDIUM: `dependent/plugin` 오제외 위험, 성공 지표가 파일명 패턴 의존, rollback/로컬중지 단계 부재 | `.dockerignore`에서 명시적 keep, mtime 기반 검증으로 보강, Task 5/6에 백업·중지 단계 추가 |
 
 ## Design Decisions
 - 별도 GUI를 새로 만들지 않고 `recordWEB.py`의 기존 웹 UI를 그대로 컨테이너로 노출한다.
-- **네트워크 경계**: `docker-compose.yml`의 포트 게시를 127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)으로 고정한다(0.0.0.0 아님). NAS 밖에서는 이 포트에 도달할 수 없다. 접근이 필요하면 `ssh -L 5000:localhost:5000 nas-claude` 로 로컬 포트포워딩해서 사용한다. LAN 전체 공개나 라우터 포트포워딩은 이번 계획 범위에서 하지 않는다 — 하려면 애플리케이션의 라우트별 인증 커버리지를 별도로 전수 감사해야 하므로 후속 과제로 분리한다.
-- `requireLogin`은 여전히 `loginMode:true` + `HTTPException(401)`로 수정해 둔다(심층 방어). 배포본 `config.json`도 `loginMode:true`로 설정한다.
+- **인증**: 라우터 전역 `Depends(enforceLoginGlobally)`로 구조적으로 강제한다(위 "v5의 핵심 변경" 참고). 개별 라우트의 기존 `Depends(requireLogin)`은 중복이지만 해가 없으므로 그대로 둔다.
+- **네트워크 경계(심층 방어)**: `docker-compose.yml`의 포트 게시를 127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)으로 고정한다(0.0.0.0 아님). 접근이 필요하면 `ssh -L 5000:localhost:5000 nas-claude`로 로컬 포트포워딩한다.
+- 배포본 `config.json`은 `loginMode:true`로 설정한다.
 - `json/` 전체는 이미지에 포함하지 않고 `/volume3/docker/recordweb/json`에 바인드 마운트한다.
 - 녹화 출력은 `channels.json`의 기존 `output_dir: "chzzk"`를 그대로 두고, 컨테이너 내부 `/app/chzzk`에 `/volume1/storage/recordweb-files/chzzk`를 바인드 마운트한다.
 - `dependent/aria2c`, `dependent/bgutil-pot`, `dependent/ffmpeg`, `dependent/streamlink`, `dependent/ytarchive`, `dependent/yt-dlp`(Windows PE 바이너리)는 이미지에 포함하지 않고, Linux 네이티브 ffmpeg/aria2(apt)·streamlink/yt-dlp(pip)로 대체한다. `dependent/plugin`, `dependent/img`는 유지한다.
-- deno는 `denoland/deno` 공식 이미지에서 바이너리만 멀티스테이지로 복사해 항상 포함시킨다.
+- deno는 `denoland/deno` 공식 이미지에서 바이너리만 `/usr/local/bin/deno`로 멀티스테이지 복사한다.
 - Docker Swarm이 아니라 단일 호스트 `docker compose`로 배포한다.
-- NAS 배포본 `login.json`의 `secret_key`는 로컬 값을 재사용하지 않고 새로 생성한다.
+- NAS 배포본 `login.json`의 `secret_key`는 로컬 값을 재사용하지 않고 새로 생성한다(계정 등록 후부터 유효해지는 값이며, 등록 전에는 세션이 존재하지 않아 무의미하지만 등록 이후 세션 위조 방지를 위해 유지).
 
 ## Files to Change
 | File | Action | Why |
 |---|---|---|
-| `recordWEB.py` | **UPDATE (이미 적용됨)** | (1) `requireLogin`이 `HTTPException(401)`을 raise하도록 수정 — 기존 예외 핸들러(343-351행)가 401만 redirect로 바꾸는 동작을 그대로 재사용. (2) architect가 확정한 무인증 라우트 4개(`GET /api/config`, `GET/POST /api/yt_potoken`, `GET /get_config`)에 `Depends(requireLogin)` 추가 |
+| `recordWEB.py` | **UPDATE (이미 적용됨)** | (1) `requireLogin`이 `HTTPException(401)`을 raise하도록 수정. (2) `requireLogin` 정의 직후 `enforceLoginGlobally` + `app.router.dependencies.append(...)`로 라우터 전역 인증 강제 추가(모든 47개 라우트가 자동 적용 대상, `/`, `/login`, `/register`, `/logout`, `/static/*`만 예외) |
 | `requirements.txt` | CREATE | `install_missing_modules()` 목록과 정확히 일치(fastapi, uvicorn, aiohttp, jinja2, werkzeug, itsdangerous, python-multipart, starlette, psutil, cryptography, requests, httpx, pystray, pillow, py-cpuinfo) + streamlink, yt-dlp |
-| `Dockerfile` | CREATE | `python:3.11-slim`, `apt-get install -y ffmpeg aria2`, `denoland/deno` 이미지에서 바이너리를 `/usr/local/bin/deno`로 COPY(PATH 표준 위치 명시), `pip install -r requirements.txt`, `WORKDIR /app`, `EXPOSE 5000`, `CMD ["python","recordWEB.py"]` |
+| `Dockerfile` | CREATE | `python:3.11-slim`, `apt-get install -y ffmpeg aria2`, `denoland/deno` 이미지에서 바이너리를 `/usr/local/bin/deno`로 COPY, `pip install -r requirements.txt`, `WORKDIR /app`, `EXPOSE 5000`, `CMD ["python","recordWEB.py"]` |
 | `.dockerignore` | CREATE | `chzzk/`, `dependent/{aria2c,bgutil-pot,ffmpeg,streamlink,ytarchive,yt-dlp}/`, `json/`, `.git`, `__pycache__` 제외. `dependent/plugin/`, `dependent/img/`는 keep |
 | `docker-compose.yml` | CREATE | 이미지 빌드/실행, `json`·`chzzk` 바인드 마운트, **127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)**, `restart: unless-stopped`, `init: true`(PID 1 zombie reap) |
 | `json/config.json` | UPDATE(배포시, 배포본에만 적용·git에는 미반영) | `enableTray:false`, `minimizeToTray*:false`, `loginMode:true`, `port:5000` |
@@ -76,16 +87,24 @@
 
 ## Tasks
 
-### Task 0: 인증 우회 버그 수정 및 무인증 라우트 patch (완료)
-- **Action**: (1) `recordWEB.py`의 `requireLogin`에서 리다이렉트 경로를 `HTTPException(status_code=401, detail="Login required")` raise로 통일(기존 401→redirect 전역 핸들러 재사용). (2) architect가 grep으로 확정한 무인증 라우트 4개 — `GET /api/config`, `GET /api/yt_potoken`, `POST /api/yt_potoken`, `GET /get_config` — 각각에 `Depends(requireLogin)` 추가
-- **Validate**: 배포 후 세션 없는 상태에서 `GET /cookies`, `GET /api/config`, `GET /get_config`, `GET/POST /api/yt_potoken` 요청 시 모두 401/리다이렉트로 차단되는지 확인(심층 방어 검증 — 1차 방어선은 Task 3의 loopback 바인딩)
+### Task 0: 인증을 라우터 전역 의존성으로 구조화 (완료)
+- **Action**: (1) `requireLogin`이 `HTTPException(401)` raise. (2) `app.router.dependencies.append(Depends(enforceLoginGlobally))`를 라우트 등록보다 앞선 위치(404행)에 추가 — 이후 등록되는 전체 47개 라우트에 자동 적용
+- **Validate (기계적, 실행 없이 정적 검증 가능)**:
+  ```bash
+  # 1) app.router.dependencies.append(...) 위치 확인
+  grep -n "app.router.dependencies.append" recordWEB.py
+  # 2) 모든 라우트 데코레이터가 그 뒤에 있는지 확인 (숫자 비교로 "빠진 라우트 없음"을 기계적으로 증명)
+  grep -n "^@app\.\(get\|post\|put\|delete\)" recordWEB.py | awk -F: '{print $1}' | sort -n | head -1
+  # → 최소 라인 번호가 append 라인보다 커야 함(현재: append=404, 최소 라우트=778)
+  ```
+  배포 후에는 심층 방어로 세션 없는 상태에서 `GET /status`, `GET /api/sys_metrics`, `GET /user_info`, `GET /cookies` 등 임의 표본 라우트가 401/리다이렉트로 막히는지도 확인한다.
 
 ### Task 1: requirements.txt 작성
 - **Action**: `install_missing_modules()` 목록(pystray/pillow/py-cpuinfo 포함)과 1:1 일치 + streamlink, yt-dlp 추가
-- **Validate**: `docker compose up` 최초 기동 로그에서 `모든 필수 모듈이 이미 설치되어 있습니다` 메시지 확인(=네트워크 pip install 미발생). *(build 시점이 아니라 CMD 실행 시점에 출력되므로 `docker build` 로그가 아닌 `up`/`run` 로그를 봐야 함)*
+- **Validate**: `docker compose up` 최초 기동 로그에서 `모든 필수 모듈이 이미 설치되어 있습니다` 메시지 확인(build 시점이 아니라 CMD 실행 시점에 출력되므로 `up`/`run` 로그를 봐야 함)
 
 ### Task 2: Dockerfile / .dockerignore 작성
-- **Action**: ffmpeg/aria2(apt) + deno(멀티스테이지 COPY) + Python 의존성 설치
+- **Action**: ffmpeg/aria2(apt) + deno(멀티스테이지 COPY, `/usr/local/bin/deno`) + Python 의존성 설치
 - **Validate**: `docker build -t recordweb .` 성공, `docker run --rm recordweb sh -c "ffmpeg -version && streamlink --version && yt-dlp --version && deno --version"`
 
 ### Task 3: docker-compose.yml 작성 — 포트를 루프백에만 게시
@@ -110,13 +129,16 @@
 
 ## Validation
 ```bash
+# 로컬(정적 검증) — 라우터 전역 인증 커버리지 증명
+grep -n "app.router.dependencies.append" recordWEB.py
+grep -n "^@app\.\(get\|post\|put\|delete\)" recordWEB.py | awk -F: '{print $1}' | sort -n | head -1
+
 # NAS (sudo 필요)
 docker compose config
 docker compose build
 docker compose up -d
 docker compose ps
 docker compose logs -f recordweb   # "모든 필수 모듈이 이미 설치되어 있습니다" 확인
-# 루프백 바인딩 검증: NAS 자신에게서는 응답, 외부 IP로는 미노출
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/
 ls -la /volume1/storage/recordweb-files/chzzk/
 ```
@@ -126,11 +148,13 @@ ls -la /volume1/storage/recordweb-files/chzzk/
 |---|---|---|
 | Docker 소켓 권한(claude 계정 미가입) | 낮음 (sudo 확인 완료) | `sudo docker compose ...` |
 | ffmpeg/streamlink/yt-dlp Linux 빌드가 Windows용과 옵션/성능 차이 | 중간 | Task 7 검증으로 확인, 이상 시 `extra_ffmpeg_options` 조정 |
-| loopback 바인딩으로 인해 다른 기기(휴대폰 등)에서 바로 웹 UI 접속 불가 — UI4(설정 GUI) 요구를 충족하되 편의성은 SSH 터널이 필요한 수준으로 제한됨 | 확정(설계상 트레이드오프) | 이번 계획의 성공 기준(UI4/UI5)은 "GUI로 설정 가능 + 녹화 확인 가능"이며 둘 다 SSH 터널로 충족됨. LAN 전체 공개가 필요하면 라우트 전수 인증 감사를 별도 후속 과제로 진행 |
+| 라우터 전역 의존성이 `/static/*` 외의 향후 새 public 경로(예: 헬스체크 엔드포인트)를 잊고 `_PUBLIC_PATHS`에 추가하지 않으면 그 라우트도 인증이 걸림 | 낮음 | 이는 "과소허용" 방향의 실패이므로 보안상 안전한 방향의 실패(막혀서 못 쓰는 것이 뚫려서 새는 것보다 낫다). 필요 시 `_PUBLIC_PATHS`에 추가 |
+| loopback 바인딩으로 다른 기기에서 SSH 터널 없이 웹 UI 접속 불가 | 확정(설계상 트레이드오프) | UI4/UI5 성공 기준은 SSH 터널로 충족 가능. LAN 전체 공개가 필요하면 후속 과제 |
 | 126GB 기존 로컬 녹화본은 이번 배포 범위에 없음(신규 녹화만 NAS로) | — | 사용자가 별도로 원치 않는 한 마이그레이션은 이번 계획에서 제외 |
 
 ## Acceptance
 - [ ] `docker compose up -d`로 NAS에서 recordWEB 컨테이너가 정상 기동
+- [ ] 정적 검증(`app.router.dependencies.append`가 모든 라우트 데코레이터보다 앞선 라인)으로 인증 커버리지가 전체 라우트에 미침을 확인
 - [ ] 포트가 127.0.0.1에만 게시되어 SSH 터널 없이는 외부에서 도달 불가함을 확인
 - [ ] SSH 터널을 통해 웹 UI로 설정/채널 관리 가능 (GUI 요구사항 충족)
 - [ ] `/volume1/storage/recordweb-files/chzzk/`에 "아카네 리제" 방송 녹화 파일이 생성되고 크기가 증가함 (성공 지표 충족)
