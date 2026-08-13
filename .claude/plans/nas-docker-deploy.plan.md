@@ -89,7 +89,7 @@ app.router.dependencies.append(Depends(enforceLoginGlobally))
 
 ### Task 0: 인증을 라우터 전역 의존성으로 구조화 (완료)
 - **Action**: (1) `requireLogin`이 `HTTPException(401)` raise. (2) `app.router.dependencies.append(Depends(enforceLoginGlobally))`를 라우트 등록보다 앞선 위치(404행)에 추가 — 이후 등록되는 전체 47개 라우트에 자동 적용
-- **Validate (기계적, 실행 없이 정적 검증 가능)**:
+- **Validate**: (기계적, 실행 없이 정적 검증 가능)
   ```bash
   # 1) app.router.dependencies.append(...) 위치 확인
   grep -n "app.router.dependencies.append" recordWEB.py
