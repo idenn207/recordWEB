@@ -1297,6 +1297,15 @@ async def index(request: Request):
         })
 
 
+# 401 예외 핸들러(343-351행)가 무조건 GET /login으로 리다이렉트하는데,
+# 로그인 폼 자체는 index() 라우트가 렌더링한다(templates/index.html — 별도
+# login.html 없음). GET /login 라우트가 없으면 이 리다이렉트가 405로
+# 끝나버리므로, "/"로 다시 리다이렉트해 실제 로그인 폼에 도달하게 한다.
+@app.get("/login")
+async def login_redirect():
+    return RedirectResponse(url="/")
+
+
 # 로그인 라우트
 @app.post("/login")
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):

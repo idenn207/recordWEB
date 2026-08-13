@@ -1,8 +1,8 @@
-# Plan: recordWEB NAS Docker 배포 (자동 스트리밍 녹화) — v5
+# Plan: recordWEB NAS Docker 배포 (자동 스트리밍 녹화) — v6
 
 **Source**: 대화형 요청 (free-form, PRD 없음)
 **Complexity**: Medium
-**Revision**: v1~v4는 라우트 단위로 인증을 opt-in 추가하는 방식이었고, 매 라운드 리뷰에서 "또 다른 무인증 라우트"가 새로 발견됐다(v2: 다수, v3: 4개, v4: 4개 더). v5는 **라우터 레벨 전역 의존성**으로 구조 자체를 바꿔 이 whack-a-mole을 구조적으로 종료한다.
+**Revision**: v1~v4는 라우트 단위로 인증을 opt-in 추가하는 방식이었고, 매 라운드 리뷰에서 "또 다른 무인증 라우트"가 새로 발견됐다(v2: 다수, v3: 4개, v4: 4개 더). v5는 **라우터 레벨 전역 의존성**으로 구조 자체를 바꿨으나, 5라운드 리뷰에서 그 전역 의존성 자체가 `loginMode` 설정값(기본 false)에 종속된 no-op이 될 수 있고 배포 검증에 이를 확인하는 단계가 없다는 점, `/login`으로의 리다이렉트가 실제로는 404/405로 끊긴다는 점이 지적됐다. v6은 이 두 가지를 수정한다. **이 세션의 자동 리뷰 게이트 에이전트 예산(24개)이 5라운드에서 소진되어 v6은 자동 재검증을 받지 못했다** — 아래 "게이트 상태" 참고.
 
 ## Summary
 `recordWEB.py`(FastAPI 기반 웹 UI + 녹화 엔진)를 Synology NAS(DSM 7.3.2, Container Manager/Docker 24.0.2)에 Docker로 배포해, 로컬 PC 전원 상태와 무관하게 24시간 자동 스트리밍 녹화가 되도록 한다. 배포 설정(compose/Dockerfile/시크릿)은 `volume3`에, 실제 녹화 영상은 `volume1`에 저장한다.
@@ -22,9 +22,16 @@ async def enforceLoginGlobally(request: Request):
 
 app.router.dependencies.append(Depends(enforceLoginGlobally))
 ```
-파일 내 모든 `@app.get/post/put/delete` 데코레이터는 778행 이후에 있음을 grep으로 확인했다(47개 전부, 404행보다 뒤) — 즉 이 시점 이후 등록되는 라우트가 정확히 전체 라우트 집합과 일치한다. `/`, `/login`, `/register`, `/logout`, `/static/*`만 명시적으로 예외 처리했고, `/`는 `index()` 핸들러가 이미 내부적으로 loginMode/세션을 검사해 비로그인 시 제한된 화면만 보여주므로 이중 보호가 불필요하다.
+파일 내 모든 `@app.get/post/put/delete` 데코레이터는 778행 이후에 있음을 grep으로 확인했다(47개 전부, 404행보다 뒤) — 즉 이 시점 이후 등록되는 라우트가 정확히 전체 라우트 집합과 일치한다. `add_api_route`/`include_router`/`@app.websocket`/`@app.patch`/`@app.head`/`@app.options`/`@app.api_route` 등 다른 라우트 등록 형태는 파일 전체에 전무함을 grep으로 확인했다(architect가 "이론상 우회 가능"으로 지적했으나 실제로는 존재하지 않음). `/`, `/login`, `/register`, `/logout`, `/static/*`만 명시적으로 예외 처리한다.
+
+**v6 정정 1 — `/` 예외 처리의 근거**: v5는 "`index()`가 내부적으로 게이팅한다"고 기술했으나, 실제로는 `index()`의 두 분기(`loginMode and not logged_in` / `else`)가 동일한 템플릿·동일한 컨텍스트를 반환한다(recordWEB.py 1281-1297행). 실제 표시 제한은 `templates/index.html`(25, 65행)의 Jinja 조건부에서 이뤄진다. `/`를 공개 경로로 둔 진짜 이유는 "로그인 폼 자체가 이 페이지에 있으므로 여기를 막으면 아무도 로그인할 수 없다"이며, 이것으로 인용을 정정한다.
+
+**v6 정정 2 — `GET /login`이 존재하지 않아 401→redirect가 끊기는 문제**: 전역 401 핸들러(343-351행)는 무조건 `RedirectResponse(url='/login')`을 반환하지만, 기존 코드에는 `@app.post("/login")`만 있고 `@app.get("/login")`이 없었다(전용 `login.html` 템플릿도 없음 — 로그인 폼은 `index()`가 렌더링하는 `index.html`에 있음). v5까지는 이 경로를 실제로 밟는 라우트가 적어 드러나지 않았지만, v5에서 전 라우트가 이 리다이렉트를 탈 수 있게 되면서 실사용 시 405로 막히는 문제가 될 수 있었다. `@app.get("/login")`을 추가해 `/`로 재리다이렉트하도록 수정했다(코드 수정 완료, `/login`은 `_PUBLIC_PATHS`에 이미 포함되어 있어 무한루프 없음).
 
 루프백 바인딩(v3에서 도입)은 심층 방어로 그대로 유지한다.
+
+## 게이트 상태 (v6, 2026-08-14)
+이번 세션의 mccp 리뷰 게이트 에이전트 예산(`MCCP_ORCHESTRATION_MAX_AGENTS`, 세션당 24개)이 v5 검증(5라운드 × 4에이전트 = 20개 반영 + 이번 라운드 4개)으로 소진되어, v6에 대한 자동 L2 리뷰 패널을 이 세션에서는 더 실행할 수 없다. v6은 v5의 5라운드 리뷰에서 나온 지적 중 코드로 직접 검증 가능한 두 가지(위 정정 1, 2)와 `loginMode` 배포 검증 누락(아래 Task 5 참고)을 반영했지만, **자동 리뷰로 확정되지 않은 상태**다. 새 세션에서 `/mccp:plan`을 다시 실행하면 이 계획이 처음부터 재검증받을 수 있다.
 
 ## Patterns to Mirror
 | Category | Source | Pattern |
@@ -117,7 +124,7 @@ app.router.dependencies.append(Depends(enforceLoginGlobally))
 
 ### Task 5: 로컬 자격증명 백업 및 NAS 이전 (secret_key 재생성)
 - **Action**: 로컬 `json/` 전체를 우선 로컬 백업 후, `config.json`(트레이/로그인/포트 조정), `channels.json`, `cookie.json`을 `/volume3/docker/recordweb/json/`으로 scp 이전. `login.json`은 그대로 복사하지 않고 `secret_key`만 새로 생성해서 저장(`username`/`password`는 null 유지 → 최초 `/register` 필요)
-- **Validate**: NAS `ls json/`로 파일 확인, `login.json`의 `secret_key`가 로컬 원본과 다른지 확인
+- **Validate**: NAS `ls json/`로 파일 확인, `login.json`의 `secret_key`가 로컬 원본과 다른지 확인. **`enforceLoginGlobally`/`requireLogin`은 둘 다 `config.get('loginMode', False)`가 true일 때만 동작하는 no-op 게이트이므로(recordWEB.py:376-377), 배포본 `json/config.json`의 `loginMode` 값이 반드시 `true`인지 scp 직후 `grep '"loginMode"' /volume3/docker/recordweb/json/config.json`으로 직접 확인한다.** 로컬 원본(`json/config.json`)의 기본값은 `false`이므로 별도로 고치지 않으면 인증 전체가 무력화된다
 
 ### Task 6: 로컬 인스턴스 중지 → 이미지 빌드 및 기동 → 관리자 계정 생성(SSH 터널)
 - **Action**: (a) 로컬 PC의 recordWEB 프로세스 종료(이중 녹화 방지) → (b) NAS에서 `sudo docker compose build && sudo docker compose up -d` → (c) `ssh -L 5000:localhost:5000 nas-claude`로 터널을 연 뒤 `http://localhost:5000/register`로 관리자 계정 생성
@@ -155,6 +162,8 @@ ls -la /volume1/storage/recordweb-files/chzzk/
 ## Acceptance
 - [ ] `docker compose up -d`로 NAS에서 recordWEB 컨테이너가 정상 기동
 - [ ] 정적 검증(`app.router.dependencies.append`가 모든 라우트 데코레이터보다 앞선 라인)으로 인증 커버리지가 전체 라우트에 미침을 확인
+- [ ] **배포본 `json/config.json`의 `loginMode`가 `true`임을 직접 확인**(이 값이 false면 인증 게이트 전체가 no-op이 되므로 다른 어떤 체크리스트 항목보다 우선 확인)
+- [ ] 관리자 계정 생성 후 비로그인 상태에서 임의 라우트(예 `/status`, `/cookies`) 접근 시 `/login` → `/`로 정상 리다이렉트되고 405/500이 발생하지 않는지 확인
 - [ ] 포트가 127.0.0.1에만 게시되어 SSH 터널 없이는 외부에서 도달 불가함을 확인
 - [ ] SSH 터널을 통해 웹 UI로 설정/채널 관리 가능 (GUI 요구사항 충족)
 - [ ] `/volume1/storage/recordweb-files/chzzk/`에 "아카네 리제" 방송 녹화 파일이 생성되고 크기가 증가함 (성공 지표 충족)
