@@ -55,12 +55,12 @@ v2에서는 L2 리뷰가 지적한 CRITICAL 인증 우회 버그를 애플리케
 ## Files to Change
 | File | Action | Why |
 |---|---|---|
-| `recordWEB.py:383` | **UPDATE (이미 적용됨)** | `requireLogin`이 redirect를 raise하도록 수정 — CRITICAL 인증 우회 수정 |
+| `recordWEB.py` | **UPDATE (이미 적용됨)** | `requireLogin`(383행)이 redirect를 raise하도록 수정 — CRITICAL 인증 우회 수정 |
 | `requirements.txt` | CREATE | `install_missing_modules()` 목록과 정확히 일치(fastapi, uvicorn, aiohttp, jinja2, werkzeug, itsdangerous, python-multipart, starlette, psutil, cryptography, requests, httpx, pystray, pillow, py-cpuinfo) + streamlink, yt-dlp |
 | `Dockerfile` | CREATE | `python:3.11-slim`, `apt-get install -y ffmpeg aria2`, `denoland/deno` 이미지에서 바이너리 COPY, `pip install -r requirements.txt`, `WORKDIR /app`, `EXPOSE 5000`, `CMD ["python","recordWEB.py"]` |
 | `.dockerignore` | CREATE | `chzzk/`, `dependent/{aria2c,bgutil-pot,ffmpeg,streamlink,ytarchive,yt-dlp}/`, `json/`, `.git`, `__pycache__` 제외. `dependent/plugin/`, `dependent/img/`는 keep |
 | `docker-compose.yml` | CREATE | 이미지 빌드/실행, `json`·`chzzk` 바인드 마운트, `5000:5000`, `restart: unless-stopped` |
-| (배포본) `json/config.json` | UPDATE(배포시) | `enableTray:false`, `minimizeToTray*:false`, `loginMode:true`, `port:5000` |
+| `json/config.json` | UPDATE(배포시, 배포본에만 적용·git에는 미반영) | `enableTray:false`, `minimizeToTray*:false`, `loginMode:true`, `port:5000` |
 | (NAS) `/volume3/docker/recordweb/` | CREATE | compose 스택 배치 위치 |
 | (NAS) `/volume1/storage/recordweb-files/chzzk` | CREATE | 녹화 영상 저장 위치 |
 
