@@ -126,7 +126,7 @@ ls -la /volume1/storage/recordweb-files/chzzk/
 
 ## Acceptance
 - [ ] `docker compose up -d`로 NAS에서 recordWEB 컨테이너가 정상 기동
-- [ ] 포트가 `127.0.0.1`에만 게시되어 SSH 터널 없이는 외부에서 도달 불가함을 확인
+- [ ] 포트가 127.0.0.1에만 게시되어 SSH 터널 없이는 외부에서 도달 불가함을 확인
 - [ ] SSH 터널을 통해 웹 UI로 설정/채널 관리 가능 (GUI 요구사항 충족)
 - [ ] `/volume1/storage/recordweb-files/chzzk/`에 "아카네 리제" 방송 녹화 파일이 생성되고 크기가 증가함 (성공 지표 충족)
 
