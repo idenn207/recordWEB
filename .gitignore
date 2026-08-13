@@ -1,0 +1,35 @@
+# Secrets & runtime state (cookies, login keys, personal channel list)
+json/
+
+# Windows-only vendored binaries (ffmpeg/streamlink/yt-dlp/aria2c/bgutil-pot exe+dll)
+# keep dependent/img (thumbnails) and dependent/plugin (postprocessing scripts)
+dependent/aria2c/
+dependent/bgutil-pot/
+dependent/ffmpeg/
+dependent/streamlink/
+dependent/ytarchive/
+dependent/yt-dlp/
+
+# Actual stream recordings / downloads
+chzzk/
+*.ts
+*.mp4
+*.mkv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Local Claude Code tooling state (not project source)
+.claude/cache/
+.claude/state/
+.claude/settings.local.json
+.superpowers/

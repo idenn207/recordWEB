@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>쿠키관리</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/style.css') }}?v={{ program_version|default('') }}">  
+</head>
+<body class="page-cookies">
+    <div class="navbar-container">
+      <div class="navbar">
+        <button class="menu-icon"
+                type="button"
+                aria-controls="mySidenav"
+                aria-expanded="false"
+                aria-label="메뉴 열기">&#9776;</button>
+        <h2>내맘대로 자동녹화 웹UI<span class="chip chip--ver">v1.1.4b</span></h2>
+      </div>
+    </div>
+
+    <!-- 슬라이드 메뉴 -->
+    <div id="mySidenav" class="sidenav">
+        <a href="javascript:void(0)" class="closebtn">&times;</a>
+        
+        {% if loginMode %}
+            {% if request.session.get('logged_in') %}
+                <!-- 로그인된 상태 -->
+                <a href="/">메인화면</a>
+                <a href="/recording" class="restricted-menu">녹화현황</a>
+                <a href="/config" class="restricted-menu">설정관리</a>
+                <a href="/channels" class="restricted-menu">채널관리</a>
+                <a href="/cookies" class="restricted-menu">쿠키관리</a>
+                <a href="/files" class="restricted-menu">파일관리</a>
+
+                <!-- 로그인 정보와 로그아웃 링크 -->
+                <div id="user-info">
+                    <p id="username-display">{{ request.session.get('username', '사용자') }}</p>
+                    <a href="/logout" id="logout-btn" class="logout-btn">로그아웃</a>
+                </div>
+            {% else %}
+                <!-- 로그인되지 않은 상태 -->
+                <a href="/">메인화면</a>
+                <a href="/register" class="restricted-menu">계정생성</a>
+            {% endif %}
+        {% else %}
+            <!-- 로그인 모드가 꺼져 있을 때 메뉴 표시 -->
+            <a href="/">메인화면</a>
+            <a href="/recording" class="restricted-menu">녹화현황</a>
+            <a href="/config" class="restricted-menu">설정관리</a>
+            <a href="/channels" class="restricted-menu">채널관리</a>
+            <a href="/cookies" class="restricted-menu">쿠키관리</a>
+            <a href="/files" class="restricted-menu">파일관리</a>
+
+            <!-- 로그인 정보와 로그아웃 링크 -->
+            <div id="user-info">
+                <p id="username-display">{{ request.session.get('username', '사용자') }}</p>
+                <a href="/logout" id="logout-btn" class="logout-btn">로그아웃</a>
+            </div>
+        {% endif %}
+    </div>
+
+
+    <div id="content">
+        <h1>[치지직 쿠키 관리]</h1>
+
+        <div class="notice">
+            <p><strong>치지직 쿠키 추출 방법:</strong></p>
+            1. 웹 브라우저에서 네이버 페이지를 열고 로그인합니다.<br>
+            2. F12키를 열고 콘솔페이지에서 상단 <b>Application</b> 탭을 클릭합니다.<br>
+            3. 좌측 메뉴에서 <b>Cookies - http://www.naver.com</b>를 선택합니다.<br>
+            4. <b>NID_SES, NID_AUT</b> 값을 복사하여 쿠키를 업데이트 합니다.<br>
+        </div>
+
+        <!-- 치지직 쿠키 업데이트 폼 -->
+        <form id="updateCookiesForm" method="post">
+            {% for key, value in cookies.items() %}
+                {% if key %} 
+                    <label for="{{ key }}">{{ key }}:</label>
+                    <input type="text" id="{{ key }}" name="{{ key }}" value="{{ value }}">
+                {% endif %}
+            {% endfor %}
+            <input type="submit" value="쿠키 업데이트">
+        </form>
+
+        <div class="last-modified">
+        </div><br>
+
+        <!-- 유튜브 쿠키 관리 섹션 -->
+        <h2>[유튜브 쿠키 관리]</h2>
+        <div class="notice">
+            <p><strong>※ 유튜브 쿠키 추출 프로그램:</strong></p>
+            <a href="https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">Get cookies.txt LOCALLY</a> 확장 프로그램을 설치하세요.<br><br>
+            <p><strong>사용 방법:</strong></p>
+            1. 크롬 브라우저에서 유튜브에 로그인합니다.<br>
+            2. 유튜브 페이지에서 <b>확장 프로그램</b>을 실행합니다.<br>
+            3. "Copy" 버튼을 눌러 쿠키 값을 복사합니다.<br>
+            4. <b>`json/ycookie.txt`</b> 파일을 열어 붙여넣기 후에 저장합니다.<br>
+        </div><br>
+
+        <!-- 유튜브 PO토큰 관리 섹션 -->
+		<h3>[유튜브 PO 토큰 관리]</h3>
+        <div class="notice">
+            <p><strong>유튜브 PO토큰 추출 방법:</strong></p>
+            1. 프로그램 경로의 <b>ext_PoToken.bat</b>을 실행<br>
+            2. 실행 후 아무 유튜브 영상 주소를 입력<br>
+            3. 생성된 <b>po_token.txt</b> 파일을 열어 PO토큰값 복사<br>
+            4. 아래 PO토큰 입력칸에 붙여넣어 업데이트<br>
+            5. <b>po_token.txt, pot_raw.txt</b> 파일은 삭제<br>
+
+		<p>※ <b>'/dependent/bgutil-pot/bgutil-pot-windows-x86_64.exe'</b> <br>파일이 있는지 확인하세요(없으면 auto_install 재실행).</p>
+		<p>※ PO토큰은 PO토큰은 <b>1~3일 마다</b> 혹은 <b>PO토큰 오류</b>가 발생할 시 갱신을 권장합니다.</p>
+
+
+		<form id="updateYtPoTokenForm">
+		  <label for="ytPoToken">유튜브 PO토큰:</label>
+		  <input type="text" id="ytPoToken" name="ytPoToken" value="{{ ytPoToken or '' }}" />
+		  <button type="submit">PO토큰 업데이트</button>
+		</form>
+
+    </div>
+    <script src="{{ url_for('static', path='js/script.js') }}?v={{ program_version|default('') }}"></script>
+</body>
+</html>
