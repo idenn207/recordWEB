@@ -35,7 +35,7 @@
 | v1 | (CRITICAL) `loginMode:false`가 그대로 배포되어 웹 UI가 인증 없이 노출 | 배포용 `config.json`은 `loginMode:true`로 강제(방어의 일부, 아래 참고) |
 | v1 | (CRITICAL) `GET /cookies`가 인증 없이 세션 쿠키·PO 토큰을 평문 렌더링 | `requireLogin`의 raise 누락 버그 수정(아래 v2/v3 정정 포함) |
 | v2 | (HIGH, 신규) 303+Location 방식은 전역 예외 핸들러가 401만 리다이렉트로 바꾸고 그 외 코드는 헤더를 버려서 무력화됨 | `requireLogin`을 `HTTPException(status_code=401)`만 raise하도록 정정 — 기존에 이미 검증된 401→redirect 경로(343-351행)를 재사용 |
-| v2 | (CRITICAL, 신규) `/config`(POST) 등 애초에 `Depends(requireLogin)` 자체가 없는 라우트가 다수 존재 — 라우트 단위 patch로는 커버리지를 보장 못함 | **전략 전환**: 라우트 patch를 더 이상 추가하지 않고, compose 포트 게시를 127.0.0.1:5000:5000으로 제한해 NAS 외부에서 도달 자체가 불가능하게 만듦(Design Decisions 참고) |
+| v2 | (CRITICAL, 신규) `/config`(POST) 등 애초에 `Depends(requireLogin)` 자체가 없는 라우트가 다수 존재 — 라우트 단위 patch로는 커버리지를 보장 못함 | **전략 전환**: 라우트 patch를 더 이상 추가하지 않고, compose 포트 게시를 127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)으로 제한해 NAS 외부에서 도달 자체가 불가능하게 만듦(Design Decisions 참고) |
 | v2 | (HIGH) `/register` 무인증 선착순 — 컨테이너 기동 시점과 관리자 등록 시점 사이 레이스 | 루프백 바인딩으로 애초에 외부에서 도달 불가 → 레이스의 공격자 모수가 "NAS에 로그인 가능한 사람"으로 좁혀짐(=이미 sudo 비밀번호를 아는 신뢰 당사자) |
 | v2 | (MEDIUM) `login.json`의 `secret_key`를 회전 없이 그대로 NAS로 이전 — 로컬에 남은 값으로 세션 위조 가능 | Task 5에서 NAS 배포본 `login.json`은 **새 `secret_key`로 재생성**(로컬 값 재사용 안 함) |
 | v1 | (HIGH) `getDeno()` 무가드 호출 → 미설치 시 `sys.exit(1)`로 전체 프로세스 종료 | Dockerfile에서 `denoland/deno` 공식 이미지 바이너리를 멀티스테이지 `COPY`로 항상 포함 |
@@ -47,7 +47,7 @@
 
 ## Design Decisions
 - 별도 GUI를 새로 만들지 않고 `recordWEB.py`의 기존 웹 UI를 그대로 컨테이너로 노출한다.
-- **네트워크 경계**: `docker-compose.yml`의 포트 게시를 127.0.0.1:5000:5000으로 고정한다(0.0.0.0 아님). NAS 밖에서는 이 포트에 도달할 수 없다. 접근이 필요하면 `ssh -L 5000:localhost:5000 nas-claude` 로 로컬 포트포워딩해서 사용한다. LAN 전체 공개나 라우터 포트포워딩은 이번 계획 범위에서 하지 않는다 — 하려면 애플리케이션의 라우트별 인증 커버리지를 별도로 전수 감사해야 하므로 후속 과제로 분리한다.
+- **네트워크 경계**: `docker-compose.yml`의 포트 게시를 127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)으로 고정한다(0.0.0.0 아님). NAS 밖에서는 이 포트에 도달할 수 없다. 접근이 필요하면 `ssh -L 5000:localhost:5000 nas-claude` 로 로컬 포트포워딩해서 사용한다. LAN 전체 공개나 라우터 포트포워딩은 이번 계획 범위에서 하지 않는다 — 하려면 애플리케이션의 라우트별 인증 커버리지를 별도로 전수 감사해야 하므로 후속 과제로 분리한다.
 - `requireLogin`은 여전히 `loginMode:true` + `HTTPException(401)`로 수정해 둔다(심층 방어). 배포본 `config.json`도 `loginMode:true`로 설정한다.
 - `json/` 전체는 이미지에 포함하지 않고 `/volume3/docker/recordweb/json`에 바인드 마운트한다.
 - 녹화 출력은 `channels.json`의 기존 `output_dir: "chzzk"`를 그대로 두고, 컨테이너 내부 `/app/chzzk`에 `/volume1/storage/recordweb-files/chzzk`를 바인드 마운트한다.
@@ -63,7 +63,7 @@
 | `requirements.txt` | CREATE | `install_missing_modules()` 목록과 정확히 일치(fastapi, uvicorn, aiohttp, jinja2, werkzeug, itsdangerous, python-multipart, starlette, psutil, cryptography, requests, httpx, pystray, pillow, py-cpuinfo) + streamlink, yt-dlp |
 | `Dockerfile` | CREATE | `python:3.11-slim`, `apt-get install -y ffmpeg aria2`, `denoland/deno` 이미지에서 바이너리 COPY, `pip install -r requirements.txt`, `WORKDIR /app`, `EXPOSE 5000`, `CMD ["python","recordWEB.py"]` |
 | `.dockerignore` | CREATE | `chzzk/`, `dependent/{aria2c,bgutil-pot,ffmpeg,streamlink,ytarchive,yt-dlp}/`, `json/`, `.git`, `__pycache__` 제외. `dependent/plugin/`, `dependent/img/`는 keep |
-| `docker-compose.yml` | CREATE | 이미지 빌드/실행, `json`·`chzzk` 바인드 마운트, **127.0.0.1:5000:5000**, `restart: unless-stopped` |
+| `docker-compose.yml` | CREATE | 이미지 빌드/실행, `json`·`chzzk` 바인드 마운트, **127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)**, `restart: unless-stopped` |
 | `json/config.json` | UPDATE(배포시, 배포본에만 적용·git에는 미반영) | `enableTray:false`, `minimizeToTray*:false`, `loginMode:true`, `port:5000` |
 | `json/login.json` | UPDATE(배포시, 배포본에만 적용) | `secret_key`를 새로 생성해 로컬 값과 분리 |
 | (NAS) `/volume3/docker/recordweb/` | CREATE | compose 스택 배치 위치 |
@@ -84,7 +84,7 @@
 - **Validate**: `docker build -t recordweb .` 성공, `docker run --rm recordweb sh -c "ffmpeg -version && streamlink --version && yt-dlp --version && deno --version"`
 
 ### Task 3: docker-compose.yml 작성 — 포트를 루프백에만 게시
-- **Action**: `json`/`chzzk` 바인드 마운트, **127.0.0.1:5000:5000**(0.0.0.0 아님), `restart: unless-stopped`
+- **Action**: `json`/`chzzk` 바인드 마운트, **127.0.0.1의 5000번 포트로 게시(host 127.0.0.1, container 5000)**(0.0.0.0 아님), `restart: unless-stopped`
 - **Validate**: `docker compose config`로 문법 확인, 기동 후 NAS 자체에서만 `curl localhost:5000`이 응답하고 다른 기기의 LAN IP 접근은 연결이 거부되는지 확인
 
 ### Task 4: NAS 배포 디렉터리 준비 (sudo 필요, 1회성)
@@ -112,7 +112,7 @@ docker compose up -d
 docker compose ps
 docker compose logs -f recordweb   # "모든 필수 모듈이 이미 설치되어 있습니다" 확인
 # 루프백 바인딩 검증: NAS 자신에게서는 응답, 외부 IP로는 미노출
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:5000/
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:5000/
 ls -la /volume1/storage/recordweb-files/chzzk/
 ```
 
