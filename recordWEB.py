@@ -1712,12 +1712,12 @@ async def getCookies(request: Request, login: Any = Depends(requireLogin)):
 
 # PO토큰 API
 @app.get("/api/yt_potoken")
-async def api_get_yt_potoken():
+async def api_get_yt_potoken(login: Any = Depends(requireLogin)):
     cfg = loadConfig()
     return {"ytPoToken": cfg.get("ytPoToken", "")}
 
 @app.post("/api/yt_potoken")
-async def api_set_yt_potoken(request: Request):
+async def api_set_yt_potoken(request: Request, login: Any = Depends(requireLogin)):
     try:
         data = await request.json()
     except Exception:
@@ -2105,7 +2105,7 @@ async def configPage(request: Request, login: Any = Depends(requireLogin)):
 
 
 @app.get("/api/config")
-async def get_config_api():
+async def get_config_api(login: Any = Depends(requireLogin)):
     return loadConfig()
 
 
@@ -2452,7 +2452,7 @@ async def updateConfig(
 
 
 @app.get("/get_config")
-async def get_config(request: Request):
+async def get_config(request: Request, login: Any = Depends(requireLogin)):
     try:
         return {"status": "success", "config": request.app.state.config}
     except Exception as e:
