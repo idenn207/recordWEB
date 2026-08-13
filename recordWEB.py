@@ -377,13 +377,13 @@ async def requireLogin(request: Request):
         return True
     if request.session.get('logged_in'):
         return True
-    # API엔 401 JSON
-    if request.url.path.startswith('/api/') or 'application/json' in (request.headers.get('accept','')):
-        raise HTTPException(status_code=401, detail="Login required")
     # FastAPI 의존성의 반환값은 엔드포인트 실행에 영향을 주지 않으므로,
-    # 여기서 RedirectResponse를 raise하지 않고 return하면 로그인 없이도
-    # 엔드포인트 본문이 그대로 실행된다(/cookies 등에서 쿠키 평문 노출).
-    raise HTTPException(status_code=303, headers={"Location": "/login"})
+    # 여기서 응답 객체를 raise하지 않고 return하면 로그인 없이도 엔드포인트
+    # 본문이 그대로 실행된다(/cookies 등에서 쿠키 평문 노출). 전역
+    # http_exception_handler(위 343-351행)가 status_code==401을 무조건
+    # RedirectResponse('/login')로 바꿔주므로, 커스텀 헤더가 버려지는
+    # 303/Location 방식 대신 이 기존 401 경로를 그대로 재사용한다.
+    raise HTTPException(status_code=401, detail="Login required")
 
 
 # 자동 녹화 모드 함수
