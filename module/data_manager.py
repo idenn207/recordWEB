@@ -704,8 +704,12 @@ def saveCookies(data):
 
 
 # config.json 파일에서 데이터를 불러오는 함수
-def loadConfig():
-    # 기본값
+def _normalizeConfig(data):
+    # 기본값 + 타입/커플링 보정을 한 곳에서 한다. loadConfig()와 saveConfig()
+    # 둘 다 이 함수를 거쳐야 한다 — saveConfig()가 이 정규화를 건너뛰고 요청
+    # 바디를 그대로 병합하던 시절에는(POST /api/save_config 등 saveConfig를
+    # 직접 호출하는 무인증 라우트가 여러 개 있다) fileManagerEnabled 같은
+    # 커플링 규칙(760행 부근)이 저장 경로에 따라 적용되거나 안 되거나 했다.
     defaults = {
         "telegram_enabled": False,
         "autoRecordingMode": False,
@@ -760,7 +764,6 @@ def loadConfig():
         "ytPoToken": "",
     }
 
-    data = readJsonSafe(CONFIG_PATH, {})
     if not isinstance(data, dict):
         data = {}
 
@@ -883,20 +886,29 @@ def loadConfig():
     return merged
 
 
+# config.json 파일에서 데이터를 불러오는 함수
+def loadConfig():
+    return _normalizeConfig(readJsonSafe(CONFIG_PATH, {}))
+
+
 # config.json 파일에서 데이터를 저장하는 함수
 def saveConfig(data):
+    # 정규화는 디스크 쓰기 성공 여부와 무관하게 항상 먼저 끝낸다 — try 블록
+    # 안에 있으면 쓰기 실패(예외 경로) 시 비정규화 raw 원본이 반환되어,
+    # fileManagerEnabled 등 커플링 규칙을 거치지 않은 값이 곧바로
+    # app.state.config에 반영될 수 있다(v11 CRITICAL 재현 경로 — plan-review
+    # L2 패널 architect/security/test/invariant 4/4 fail, invariant CRITICAL).
+    disk = readJsonSafe(CONFIG_PATH, {})
+    if not isinstance(disk, dict):
+        disk = {}
+    merged = _normalizeConfig({**disk, **(data or {})})
     try:
-        disk = readJsonSafe(CONFIG_PATH, {})
-        if not isinstance(disk, dict):
-            disk = {}
-        merged = {**disk, **(data or {})}
         changed = writeJsonSafe(CONFIG_PATH, merged)
         if changed:
             print(f"[DEBUG] {CONFIG_PATH} 저장 완료.")
-        return merged
     except Exception as e:
         print(f"[ERROR] {CONFIG_PATH} 저장 오류: {e}")
-        return data or {}
+    return merged
 
 
 

@@ -2185,6 +2185,122 @@ function fmtMtime(m) {
 }
 
 
+// ── 행 메뉴(햄버거 드롭다운) ─────────────────────────────────────────
+// .table-wrap이 overflow:auto라 절대배치 메뉴는 스크롤 시 잘린다. 메뉴 패널을
+// document.body에 붙이고 position:fixed로 버튼 위치를 계산해 그 문제를 피한다.
+let _openRowMenu = null; // { panel, btn }
+
+function closeRowMenu() {
+  if (!_openRowMenu) return;
+  _openRowMenu.panel.remove();
+  _openRowMenu.btn.setAttribute('aria-expanded', 'false');
+  _openRowMenu = null;
+  document.removeEventListener('click', _onRowMenuOutsideClick, true);
+  document.removeEventListener('keydown', _onRowMenuKeydown, true);
+  window.removeEventListener('scroll', closeRowMenu, true);
+  window.removeEventListener('resize', closeRowMenu);
+}
+
+function _onRowMenuOutsideClick(e) {
+  if (!_openRowMenu) return;
+  if (_openRowMenu.panel.contains(e.target) || _openRowMenu.btn.contains(e.target)) return;
+  closeRowMenu();
+}
+
+function _onRowMenuKeydown(e) {
+  if (e.key === 'Escape') closeRowMenu();
+}
+
+function openRowMenu(btn, buildItems) {
+  if (_openRowMenu && _openRowMenu.btn === btn) { closeRowMenu(); return; }
+  closeRowMenu();
+
+  const panel = document.createElement('div');
+  panel.className = 'row-menu-panel';
+  panel.setAttribute('role', 'menu');
+
+  buildItems.forEach(spec => {
+    if (spec === '-') {
+      const sep = document.createElement('div');
+      sep.className = 'row-menu-sep';
+      panel.appendChild(sep);
+      return;
+    }
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.setAttribute('role', 'menuitem');
+    item.textContent = spec.label;
+    if (spec.danger) item.classList.add('danger');
+    if (spec.disabled) {
+      item.disabled = true;
+      if (spec.disabledReason) item.title = spec.disabledReason;
+    } else {
+      item.addEventListener('click', () => { closeRowMenu(); spec.onClick(); });
+    }
+    panel.appendChild(item);
+  });
+
+  document.body.appendChild(panel);
+
+  const r = btn.getBoundingClientRect();
+  const panelW = panel.offsetWidth;
+  const panelH = panel.offsetHeight;
+  let left = r.right - panelW; // 버튼 오른쪽 끝에 맞춰 왼쪽으로 펼침
+  let top  = r.bottom + 4;
+  if (top + panelH > window.innerHeight - 8) top = r.top - panelH - 4; // 아래 공간 부족하면 위로
+  left = Math.max(8, Math.min(left, window.innerWidth - panelW - 8));
+  panel.style.left = `${left}px`;
+  panel.style.top  = `${top}px`;
+
+  btn.setAttribute('aria-expanded', 'true');
+  _openRowMenu = { panel, btn };
+
+  document.addEventListener('click', _onRowMenuOutsideClick, true);
+  document.addEventListener('keydown', _onRowMenuKeydown, true);
+  window.addEventListener('scroll', closeRowMenu, true);
+  window.addEventListener('resize', closeRowMenu);
+}
+
+function buildRowMenuButton(it) {
+  const wrap = document.createElement('div');
+  wrap.className = 'row-menu';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'row-menu-btn';
+  btn.setAttribute('aria-haspopup', 'true');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-label', `${it.name || '항목'} 작업 메뉴`);
+  // width/height를 속성으로도 명시한다 — viewBox만 있고 CSS로만 크기를 주면
+  // 일부 브라우저(플렉스 아이템 + replaced element 조합)에서 계산된 너비가
+  // 0으로 무너지는 경우가 있었다.
+  btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="10" cy="4" r="1.6"/><circle cx="10" cy="10" r="1.6"/><circle cx="10" cy="16" r="1.6"/></svg>';
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const lockedReason = '녹화 중인 파일은 이동/삭제/수정할 수 없어요';
+    openRowMenu(btn, [
+      { label: '이동',   disabled: !!it.locked, disabledReason: lockedReason, onClick: () => onMove(it) },
+      { label: '수정',   disabled: !!it.locked, disabledReason: lockedReason, onClick: () => onRename(it) },
+      { label: '상세',   onClick: () => {
+          const lines = [
+            `이름 : ${it.name}`,
+            `종류 : ${it.is_dir ? '폴더' : (it.ext || '파일')}`,
+            `크기 : ${it.is_dir ? '-' : bytesToHuman(it.size)}`,
+            `수정 : ${it.mtime || '-'}`,
+            `경로 : ${it.path}`
+          ];
+          alert(lines.join('\n'));
+        } },
+      '-',
+      { label: '삭제', danger: true, disabled: !!it.locked, disabledReason: lockedReason, onClick: () => onDelete(it) },
+    ]);
+  });
+
+  wrap.appendChild(btn);
+  return wrap;
+}
+
 // 파일/폴더 리스트형 렌더
 function renderFileTable(items) {
   // 모바일이면 테이블 대신 모바일 렌더러
@@ -2240,9 +2356,11 @@ function renderFileTable(items) {
 	cb.className = 'row-check';
 	cb.value = it.path;
 	cb.checked = selectedPaths.has(it.path);
+	tr.classList.toggle('is-selected', cb.checked);
 	cb.addEventListener('change', () => {
 	  if (cb.checked) selectedPaths.add(it.path);
 	  else selectedPaths.delete(it.path);
+	  tr.classList.toggle('is-selected', cb.checked);
 
 	  // 헤더 전체선택 상태 즉시 갱신
 	  const allRowChecks = tbody.querySelectorAll('input.row-check');
@@ -2260,17 +2378,17 @@ function renderFileTable(items) {
 	tdCheck.appendChild(cb);
 
 
-    // 유형
-    const tdType = document.createElement('td');
-    tdType.className = 'col-type';
-    tdType.textContent = it.is_dir ? '폴더' : (it.ext || '파일');
+    if (it.locked) tr.classList.add('is-recording');
 
-    // 이름
+    // 이름 (+ 지금 녹화 중인 파일이면 배지) — 가장 넓은 열
     const tdName = document.createElement('td');
     tdName.className = 'col-name';
+    const nameCell = document.createElement('div');
+    nameCell.className = 'col-name-cell';
     const nameBtn = document.createElement('button');
     nameBtn.className = 'linklike';
     nameBtn.textContent = it.name || '(이름없음)';
+    nameBtn.title = it.name || '';
     if (it.is_dir) {
       nameBtn.title = '이 폴더 열기';
       nameBtn.addEventListener('click', () => changePath(it.path));
@@ -2278,7 +2396,15 @@ function renderFileTable(items) {
       nameBtn.title = '미리보기 (미디어 파일)';
       nameBtn.addEventListener('click', () => openPreview(it.path));
     }
-    tdName.appendChild(nameBtn);
+    nameCell.appendChild(nameBtn);
+    if (it.locked) {
+      const badge = document.createElement('span');
+      badge.className = 'rec-badge';
+      badge.textContent = '녹화중';
+      badge.title = '이 파일은 지금 녹화가 쓰고 있어요';
+      nameCell.appendChild(badge);
+    }
+    tdName.appendChild(nameCell);
 
     // 크기
     const tdSize = document.createElement('td');
@@ -2290,37 +2416,25 @@ function renderFileTable(items) {
     tdMtime.className = 'col-mtime';
     tdMtime.textContent = it.mtime || '-';
 
-    // 작업(1×4)
+    // 유형 — 부가 정보라 이름 뒤로, 작은 배지로
+    const tdType = document.createElement('td');
+    tdType.className = 'col-type';
+    const typeBadge = document.createElement('span');
+    typeBadge.className = 'type-badge';
+    typeBadge.textContent = it.is_dir ? '폴더' : (it.ext || '파일');
+    tdType.appendChild(typeBadge);
+
+    // 작업 — 버튼 4개 대신 햄버거 메뉴 하나
     const tdAct = document.createElement('td');
     tdAct.className = 'actions';
+    tdAct.appendChild(buildRowMenuButton(it));
 
-    const btnMove   = document.createElement('button');  btnMove.textContent   = '이동';   btnMove.disabled   = !!it.locked;
-    const btnDelete = document.createElement('button');  btnDelete.textContent = it.locked ? '잠김' : '삭제'; btnDelete.disabled = !!it.locked;
-    const btnRename = document.createElement('button');  btnRename.textContent = '수정';   btnRename.disabled = !!it.locked;
-    const btnDetail = document.createElement('button');  btnDetail.textContent = '상세';
-
-    btnRename.addEventListener('click', () => onRename(it));
-    btnMove  .addEventListener('click', () => onMove(it));
-    btnDelete.addEventListener('click', () => onDelete(it));
-    btnDetail.addEventListener('click', () => {
-      const lines = [
-        `이름 : ${it.name}`,
-        `종류 : ${it.is_dir ? '폴더' : (it.ext || '파일')}`,
-        `크기 : ${it.is_dir ? '-' : bytesToHuman(it.size)}`,
-        `수정 : ${it.mtime || '-'}`,
-        `경로 : ${it.path}`
-      ];
-      alert(lines.join('\n'));
-    });
-
-    [btnMove, btnDelete, btnRename, btnDetail].forEach(b => tdAct.appendChild(b));
-
-    // 행 조립 (체크박스 열이 맨 앞)
+    // 행 조립 (체크박스 → 이름 → 크기 → 수정일 → 유형 → 작업)
     tr.appendChild(tdCheck);
-    tr.appendChild(tdType);
     tr.appendChild(tdName);
     tr.appendChild(tdSize);
     tr.appendChild(tdMtime);
+    tr.appendChild(tdType);
     tr.appendChild(tdAct);
     tbody.appendChild(tr);
   });

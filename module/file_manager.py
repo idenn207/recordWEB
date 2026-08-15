@@ -265,12 +265,19 @@ def busyFilePaths(recorderManager, channels: List[dict]) -> List[str]:
 # 녹화중 파일 잠금
 def isLocked(path: str, busyPaths: List[str]) -> bool:
     rp = normPath(path)
+    isDir = os.path.isdir(rp)
     for bp in busyPaths:
-        if rp == bp:
-            return True
-        # 파일이 들어있는 폴더 자체를 옮기거나 지우는 것도 잠금
-        if rp.startswith(os.path.dirname(bp) + os.sep):
-            return True
+        if not isDir:
+            # 파일: 지금 녹화 중인 그 파일 자신일 때만 잠금. (예전 코드는
+            # rp.startswith(os.path.dirname(bp)+os.sep)로 검사해서 같은 폴더에
+            # 있는 다른 채널의 완료된 파일까지 전부 잠기는 버그가 있었다.)
+            if rp == bp:
+                return True
+        else:
+            # 폴더: 그 폴더 자체이거나, 활성 녹화 파일을 담고 있는 상위 폴더면
+            # 옮기거나 지우는 순간 녹화가 같이 사라지므로 잠금
+            if bp == rp or bp.startswith(rp + os.sep):
+                return True
     return False
 
 

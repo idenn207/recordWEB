@@ -2047,74 +2047,218 @@ body[data-fm-enabled="0"] #fm-disabled-modal {
 		box-shadow: 0 6px 16px -12px rgba(0,0,0,.25);
 }
 
-/* 헤더: 중앙정렬(이름만 좌측 유지) */
+/* 헤더: 이름만 좌측, 나머지는 우측 정렬(숫자·라벨류라 값과 함께 훑기 쉬움) */
 .common-table thead th {
 		position: sticky; top: 0;
 		background: var(--surface-muted);
-		color: #374151;
-		font-weight: 700;
-		padding: 10px 12px;
+		color: var(--text-muted);
+		font-weight: 600;
+		font-size: .8rem;
+		letter-spacing: .02em;
+		padding: 10px 14px;
 		border-bottom: 1px solid var(--border);
-		text-align: center;
+		text-align: right;
 }
 
 .common-table thead th.col-name { text-align: left; }
+.common-table thead th.col-check,
+.common-table thead th.actions { text-align: center; }
 
 .common-table tbody td {
-		padding: 10px 12px;
+		padding: 8px 14px;
 		border-top: 1px solid var(--border);
 		vertical-align: middle;
 }
 .common-table tbody tr:hover { background: var(--accent); }
+.common-table tbody tr.is-selected { background: var(--accent); }
 
-/* 컬럼 폭/정렬(버튼 영역 확보가 우선) */
-.common-table thead th.col-type,
-.common-table tbody td.col-type { width: 8ch; text-align: center; }
+/* 체크박스 열: 체크박스 크기만큼만 — 남는 여백을 이름 열에 돌려준다 */
+.common-table thead th.col-check,
+.common-table tbody td.col-check {
+		width: 40px;
+		padding-left: 12px;
+		padding-right: 4px;
+		text-align: center;
+}
+.common-table tbody td.col-check input[type="checkbox"],
+.common-table thead th.col-check input[type="checkbox"] {
+		width: 16px; height: 16px;
+		margin: 0;
+		accent-color: var(--brand-ink, var(--link));
+		vertical-align: middle;
+}
 
+/* 이름 열이 테이블의 주인공 — 남는 가로폭을 전부 가져간다 */
 .common-table thead th.col-name,
 .common-table tbody td.col-name { width: auto; }
 
 .common-table thead th.col-size,
-.common-table tbody td.col-size { width: 9ch; text-align: center; }
+.common-table tbody td.col-size { width: 8ch; text-align: right; }
 
 .common-table thead th.col-mtime,
-.common-table tbody td.col-mtime { width: 18ch; text-align: center; }
+.common-table tbody td.col-mtime { width: 14ch; text-align: right; }
 
-/* 1×4 버튼 가로 배치 + 충분한 가로폭 확보 */
+/* 유형: 이름 뒤로 옮기고, 텍스트가 아니라 작은 배지로 — 덜 중요한 정보라 자리도 작게 */
+.common-table thead th.col-type,
+.common-table tbody td.col-type { width: 6ch; text-align: right; }
+
+/* 작업: 행마다 버튼 4개 대신 메뉴 아이콘 하나 */
 .common-table thead th.actions,
-.common-table tbody td.actions { 
-		width: 340px; 
-		text-align: center; 
-		white-space: nowrap;
-}
-.common-table tbody td.actions button { 
-		display: inline-block; 
-		margin-right: 6px; 
+.common-table tbody td.actions {
+		width: 44px;
+		text-align: center;
 }
 
-/* 이름 버튼(말줄임) */
+/* 이름 버튼(말줄임 + 잠금 배지) */
+.col-name-cell {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+}
 .linklike {
-		background: none; 
-		border: 0; 
+		background: none;
+		border: 0;
 		padding: 0;
-		color: var(--link); 
-		font-weight: 700; 
+		color: var(--link);
+		font-weight: 600;
 		cursor: pointer;
 		text-align: left;
+		min-width: 0;
 }
 .table-wrap .common-table td.col-name .linklike {
-		display: inline-block; 
-		max-width: 100%; 
-		overflow: hidden; 
-		text-overflow: ellipsis; 
-		white-space: nowrap; 
+		display: inline-block;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+}
+.linklike:hover,
+.linklike:focus-visible { color: var(--link-hover); }
+
+/* 잠금(현재 녹화 중) 배지 — 이 파일 하나만, 채널이 다르면 붙지 않는다 */
+.rec-badge {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: .72rem;
+		font-weight: 700;
+		line-height: 1;
+		padding: 3px 6px;
+		border-radius: 999px;
+		background: color-mix(in srgb, #ef4444 16%, transparent);
+		color: #ef4444;
+}
+.rec-badge::before {
+		content: '';
+		width: 6px; height: 6px;
+		border-radius: 50%;
+		background: currentColor;
+		animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.rec-badge::before { animation: none; }
+}
+@keyframes rec-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: .35; }
 }
 
 /* 덜 중요한 수치들 살짝 약하게 */
 .table-wrap .common-table td.col-size,
 .table-wrap .common-table td.col-mtime {
-		font-size: .9rem; 
-		color: var(--text-muted); 
+		font-size: .85rem;
+		color: var(--text-muted);
+		font-variant-numeric: tabular-nums;
+}
+
+/* 유형 배지 */
+.type-badge {
+		display: inline-block;
+		font-size: .72rem;
+		font-weight: 600;
+		color: var(--text-muted);
+		background: var(--surface-muted);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 2px 6px;
+		line-height: 1.4;
+		text-transform: uppercase;
+}
+
+/* 행 메뉴(햄버거) — 이동/수정/상세/삭제를 모아 넣는다 */
+.row-menu { position: relative; display: inline-flex; }
+.row-menu-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 30px; height: 30px;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: 8px;
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+}
+.row-menu-btn:hover,
+.row-menu-btn[aria-expanded="true"] {
+		background: var(--surface-muted);
+		color: var(--text);
+		border-color: var(--border);
+}
+.row-menu-btn svg { width: 18px; height: 18px; pointer-events: none; }
+
+/* 메뉴 패널은 스크롤되는 .table-wrap 밖(position: fixed)에 떠서 잘리지 않는다 */
+.row-menu-panel {
+		position: fixed;
+		z-index: 60;
+		min-width: 148px;
+		padding: 6px;
+		background: var(--card);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		box-shadow: 0 12px 28px -12px rgba(0,0,0,.45);
+}
+.row-menu-panel button {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 8px 10px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text);
+		font-size: .9rem;
+		text-align: left;
+		cursor: pointer;
+}
+.row-menu-panel button:hover:not(:disabled) { background: var(--accent); }
+.row-menu-panel button:disabled {
+		color: var(--text-muted);
+		cursor: not-allowed;
+		opacity: .55;
+}
+.row-menu-panel button.danger { color: #ef4444; }
+.row-menu-panel button.danger:hover:not(:disabled) {
+		background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+.row-menu-panel .row-menu-sep {
+		height: 1px;
+		margin: 4px 2px;
+		background: var(--border);
+}
+
+/* 스크린리더 전용 — 시각적으로 숨기되 레이아웃 폭은 차지하지 않음 */
+.sr-only {
+		position: absolute;
+		width: 1px; height: 1px;
+		padding: 0; margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		white-space: nowrap;
+		border: 0;
 }
 
 /* 전역 hidden 유틸 */

@@ -343,7 +343,12 @@ else:
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 401:
-        return RedirectResponse(url='/login')
+        # 이 배포는 앱 레벨 로그인을 강제하지 않으므로(네트워크 경계만 사용)
+        # 이 분기는 사실상 도달하지 않는다. requireLogin이 개별 라우트에
+        # 여전히 남아 있어(no-op) 만에 하나 loginMode가 켜지는 경우에 대비해
+        # 302로 리다이렉트한다(구 307은 메서드/바디를 보존해 POST가 그대로
+        # POST /login으로 재전송되는 버그가 있었다).
+        return RedirectResponse(url='/login', status_code=302)
     else:
         return JSONResponse(
             status_code=exc.status_code,
@@ -372,36 +377,38 @@ async def initChannelStates(app: FastAPI):
 
 
 # 로그인 인증 의존성 함수 정의
+#
+# 이 배포는 앱 레벨 로그인을 아예 쓰지 않는다(네트워크 경계만 사용, plan
+# nas-docker-deploy.plan.md v9 참고). v9까지는 이 함수가 config.json의
+# loginMode 값을 매 요청 읽어 인증 여부를 결정했는데, loginMode는 무인증
+# POST /config로도 켤 수 있는 외부에서 변경 가능한 값이라 "잠겨 있는데 계정이
+# 없는" 락아웃이나 "먼저 POST /register한 사람이 계정을 가져가는" 탈취로
+# 이어지는 경로가 여러 형태로 계속 발견됐다(config.json 손상 → fail-open,
+# POST /config로 직접 켜기 등). 값 하나를 신뢰 경계로 쓰는 한 이 클래스의
+# 문제가 다른 형태로 계속 나올 수 있다고 판단해, loginMode를 아예 읽지 않고
+# 항상 통과하도록 바꿨다 — config.html의 로그인 모드 토글은 이제 저장은 되지만
+# 아무 효과가 없다(의도된 동작).
 async def requireLogin(request: Request):
-    if not request.app.state.config.get('loginMode', False):
-        return True
-    if request.session.get('logged_in'):
-        return True
-    # FastAPI 의존성의 반환값은 엔드포인트 실행에 영향을 주지 않으므로,
-    # 여기서 응답 객체를 raise하지 않고 return하면 로그인 없이도 엔드포인트
-    # 본문이 그대로 실행된다(/cookies 등에서 쿠키 평문 노출). 전역
-    # http_exception_handler(위 343-351행)가 status_code==401을 무조건
-    # RedirectResponse('/login')로 바꿔주므로, 커스텀 헤더가 버려지는
-    # 303/Location 방식 대신 이 기존 401 경로를 그대로 재사용한다.
-    raise HTTPException(status_code=401, detail="Login required")
+    return True
 
 
-# 라우트마다 Depends(requireLogin)을 붙이는 방식은 새 라우트가 추가될 때마다
-# 빠뜨리기 쉽다(실제로 여러 차례 그랬다). 대신 이 시점 이후 등록되는 모든
-# 라우트에 기본 적용되는 라우터 레벨 의존성으로 인증을 강제한다 — 이 파일의
-# 모든 @app.get/post/put/delete 데코레이터는 이 지점보다 아래(760행 이후)에
-# 있으므로 전부 적용 대상이다. 공개가 필요한 경로만 명시적으로 예외 처리한다.
-_PUBLIC_PATHS = {"/", "/login", "/register", "/logout"}
+# 파일 관리자(/api/files/*) 접근 게이트. requireLogin과 별개다 — 파일 관리자는
+# 임의 경로 읽기/삭제가 가능한 별도의 위험한 기능이고, 기본 설정
+# (fileManagerMode="blacklist" → 사실상 전체 경로 허용, module/data_manager.py)
+# 에서는 requireLogin만으로는 아무것도 막지 못한다. /api/files/roots는 이미
+# 자체적으로 이 검사를 하고 있었지만(recordWEB.py) 나머지 /api/files/* 라우트는
+# fileManagerEnabled를 전혀 확인하지 않았다 — v9 리뷰 게이트가 발견한 CRITICAL.
+async def requireFileManagerEnabled(request: Request):
+    if not request.app.state.config.get("fileManagerEnabled", False):
+        raise HTTPException(status_code=403, detail="File manager disabled")
+    return True
 
 
-async def enforceLoginGlobally(request: Request):
-    path = request.url.path
-    if path in _PUBLIC_PATHS or path.startswith("/static/"):
-        return True
-    return await requireLogin(request)
-
-
-app.router.dependencies.append(Depends(enforceLoginGlobally))
+# NAS 배포는 개인 로컬망 전용(외부 노출 없음, 포트를 LAN IP에만 게시)이라
+# 애플리케이션 레벨 로그인을 강제하지 않기로 했다 — 네트워크 경계(compose
+# 포트 게시)가 유일한 접근 통제다. 개별 라우트의 기존 Depends(requireLogin)은
+# loginMode(기본 False, 배포본에서도 켜지 않음)가 꺼져 있으면 무조건 통과하는
+# no-op이므로 그대로 둔다.
 
 
 # 자동 녹화 모드 함수
@@ -812,7 +819,7 @@ async def recording_page(request: Request, login: Any = Depends(requireLogin)):
         channel['category'] = "불러오는 중..."
         channel['thumbnail_url'] = '/static/img/default_thumbnail.png'
 
-    return templates.TemplateResponse('recording.html', {
+    return templates.TemplateResponse(request, 'recording.html', {
         'request': request,
         'channels': chs,
         'program_version': PROGRAM_VERSION
@@ -1279,7 +1286,7 @@ async def index(request: Request):
 
     # 로그인되지 않은 상태에서 로그인 모드가 활성화된 경우
     if loginMode and not request.session.get('logged_in'):
-        return templates.TemplateResponse('index.html', {
+        return templates.TemplateResponse(request, 'index.html', {
             'request': request,
             'config': config,
             'loginMode': loginMode,
@@ -1288,7 +1295,7 @@ async def index(request: Request):
         })
     else:
         # 로그인된 상태 또는 로그인 모드가 비활성화된 경우
-        return templates.TemplateResponse('index.html', {
+        return templates.TemplateResponse(request, 'index.html', {
             'request': request,
             'config': config,
             'loginMode': loginMode,
@@ -1356,14 +1363,12 @@ async def register_page(request: Request):
     if account:
         error_message = "이미 계정이 존재합니다. 추가 계정을 만들 수 없습니다."
 
-        return templates.TemplateResponse(
-            'register.html',
+        return templates.TemplateResponse(request, 'register.html',
             {'request': request, 'error_message': error_message, 'loginMode': loginMode, 'program_version': PROGRAM_VERSION},
             status_code=400
         )
 
-    return templates.TemplateResponse(
-        'register.html',
+    return templates.TemplateResponse(request, 'register.html',
         {
             'request': request,
             'loginMode': loginMode,
@@ -1381,7 +1386,7 @@ async def register(request: Request, username: str = Form(...), password: str = 
     # 계정이 이미 존재하면 계정 생성 금지
     if account:
         error_message = "이미 계정이 존재합니다. 추가 계정을 만들 수 없습니다."
-        return templates.TemplateResponse('register.html', {
+        return templates.TemplateResponse(request, 'register.html', {
             'request': request,
             'error_message': error_message,
             'program_version': PROGRAM_VERSION
@@ -1390,7 +1395,7 @@ async def register(request: Request, username: str = Form(...), password: str = 
     # 비밀번호 확인
     if password != password_confirm:
 
-        return templates.TemplateResponse('register.html', {
+        return templates.TemplateResponse(request, 'register.html', {
             'request': request,
             'error_message': "비밀번호가 일치하지 않습니다.",
             'program_version': PROGRAM_VERSION
@@ -1544,7 +1549,7 @@ async def channelsPage(request: Request, login: Any = Depends(requireLogin)):
     async with request.app.state.channels_lock:
         chs = list(request.app.state.channels)
 
-    return templates.TemplateResponse('channels.html', {
+    return templates.TemplateResponse(request, 'channels.html', {
         'request': request,
         'channels': chs,
         'program_version': PROGRAM_VERSION
@@ -1728,7 +1733,7 @@ async def getCookies(request: Request, login: Any = Depends(requireLogin)):
     cfg = request.app.state.config or {}
     ytPoToken = cfg.get("ytPoToken", "")
 
-    return templates.TemplateResponse('cookies.html', {
+    return templates.TemplateResponse(request, 'cookies.html', {
         'request': request,
         'cookies': cookies,
         'ytPoToken': ytPoToken,
@@ -1785,8 +1790,7 @@ async def filesPage(request: Request, login: Any = Depends(requireLogin)):
     enabled = bool(cfg.get("fileManagerEnabled"))
     roots = cfg.get("fileManagerRoots") or []
 
-    return templates.TemplateResponse(
-        "files.html",
+    return templates.TemplateResponse(request, "files.html",
         {
             "request": request,
             "loginMode": cfg.get("loginMode", False),
@@ -1799,7 +1803,7 @@ async def filesPage(request: Request, login: Any = Depends(requireLogin)):
 
 # 사용량/목록 API
 @app.get("/api/files/usage")
-async def api_files_usage(request: Request, login: Any = Depends(requireLogin)):
+async def api_files_usage(request: Request, login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     cfg = request.app.state.config
     async with request.app.state.channels_lock:
         roots = buildAllowedRoots(cfg, request.app.state.channels)
@@ -1812,7 +1816,8 @@ async def api_files_list(
     request: Request,
     path: str,
     show_hidden: bool = Query(False),
-    login: Any = Depends(requireLogin)
+    login: Any = Depends(requireLogin),
+    fm: Any = Depends(requireFileManagerEnabled)
 ):
     cfg = request.app.state.config
     async with request.app.state.channels_lock:
@@ -1839,10 +1844,14 @@ async def api_files_roots(request: Request, login: Any = Depends(requireLogin)):
     # 블랙리스트(오픈) 모드(["*"])일 땐 시스템 마운트 루트들을 반환
     if roots == ["*"]:
         roots_list = listMountRoots()
-        default_path = os.path.expanduser("~") if os.path.isdir(os.path.expanduser("~")) else (roots_list[0] if roots_list else None)
     else:
         roots_list = roots
-        default_path = roots_list[0] if roots_list else None
+
+    # 홈 디렉터리를 기본 진입 경로로 쓰면 컨테이너의 root 홈(/root)처럼 항상
+    # 비어 있는 곳으로 열릴 수 있다 — 그리고 애초에 roots_list 밖(예: 홈 디렉터리가
+    # 허용 루트에 없는 경우)이면 프론트가 빈 화면만 보게 된다. 실제로 파일이 있는
+    # 첫 번째 허용 루트로 기본 진입 경로를 고정한다.
+    default_path = roots_list[0] if roots_list else None
 
     return {"roots": roots_list, "default": default_path}
 
@@ -1853,7 +1862,8 @@ async def api_files_ls(
     request: Request,
     path: str,
     show_hidden: bool = Query(False),
-    login: Any = Depends(requireLogin)
+    login: Any = Depends(requireLogin),
+    fm: Any = Depends(requireFileManagerEnabled)
 ):
     cfg = request.app.state.config
     async with request.app.state.channels_lock:
@@ -1893,7 +1903,7 @@ async def api_files_ls(
 
 # 디스크 사용량
 @app.get("/api/files/disk-usage")
-async def api_files_disk_usage(request: Request, paths: List[str] = Query(default=None), login: Any = Depends(requireLogin)):
+async def api_files_disk_usage(request: Request, paths: List[str] = Query(default=None), login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     cfg = request.app.state.config
     if paths:
         roots = [p for p in paths if os.path.isdir(p)]
@@ -1917,7 +1927,7 @@ async def api_files_disk_usage(request: Request, paths: List[str] = Query(defaul
 
 # 4) 파일 다운로드 
 @app.get("/api/files/download")
-async def api_files_download(request: Request, path: str, login: Any = Depends(requireLogin)):
+async def api_files_download(request: Request, path: str, login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     async with request.app.state.channels_lock:
         roots = buildAllowedRoots(request.app.state.config, request.app.state.channels)
 
@@ -1932,7 +1942,7 @@ async def api_files_download(request: Request, path: str, login: Any = Depends(r
 
 # 경로 만들기 API
 @app.post("/api/files/mkdir")
-async def api_files_mkdir(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin)):
+async def api_files_mkdir(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     if request.app.state.config.get("fileManagerReadOnly", False):
         raise HTTPException(status_code=403, detail="Read-only mode")
     parent  = body.get("path")
@@ -1949,7 +1959,7 @@ async def api_files_mkdir(request: Request, body: dict = Body(...), login: Any =
 
 # 경로 수정 API
 @app.post("/api/files/rename")
-async def api_files_rename(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin)):
+async def api_files_rename(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     if request.app.state.config.get("fileManagerReadOnly", False):
         raise HTTPException(status_code=403, detail="Read-only mode")
     src = body.get("path"); newName = body.get("new_name")
@@ -1966,7 +1976,7 @@ async def api_files_rename(request: Request, body: dict = Body(...), login: Any 
 
 # 파일 이동 API
 @app.post("/api/files/move")
-async def api_files_move(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin)):
+async def api_files_move(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     if request.app.state.config.get("fileManagerReadOnly", False):
         raise HTTPException(status_code=403, detail="Read-only mode")
 
@@ -1991,7 +2001,7 @@ async def api_files_move(request: Request, body: dict = Body(...), login: Any = 
 
 # 파일 삭제 API
 @app.post("/api/files/delete")
-async def api_files_delete(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin)):
+async def api_files_delete(request: Request, body: dict = Body(...), login: Any = Depends(requireLogin), fm: Any = Depends(requireFileManagerEnabled)):
     if request.app.state.config.get("fileManagerReadOnly", False):
         raise HTTPException(status_code=403, detail="Read-only mode")
 
@@ -2034,6 +2044,7 @@ async def api_files_streamcopy(
     request: Request,
     body: dict = Body(...),
     login: Any = Depends(requireLogin),
+    fm: Any = Depends(requireFileManagerEnabled),
 ):
     # 읽기전용 모드 차단
     if request.app.state.config.get("fileManagerReadOnly", False):
@@ -2121,7 +2132,7 @@ async def configPage(request: Request, login: Any = Depends(requireLogin)):
     async with request.app.state.channels_lock:
         channels = [dict(c) for c in request.app.state.channels]
 
-    return templates.TemplateResponse('config.html', {
+    return templates.TemplateResponse(request, 'config.html', {
         'request': request,
         'config': config_data,
         'account': account,
@@ -2397,7 +2408,7 @@ async def updateConfig(
                 async with request.app.state.channels_lock:
                     channels = [dict(c) for c in request.app.state.channels]
 
-                return templates.TemplateResponse('config.html', {
+                return templates.TemplateResponse(request, 'config.html', {
                     'request': request,
                     'config': config_data,
                     'account': account,
@@ -2408,9 +2419,14 @@ async def updateConfig(
                 }, status_code=400)
 
         # 10) 설정 저장
+        # saveConfig()의 반환값(정규화됨 — fileManagerEnabled/loginMode 커플링
+        # 등)을 써야 한다. new_config를 그대로 대입하면 이 라우트가 직접 계산한
+        # effective_fm_enabled(위)와 saveConfig 내부 정규화가 중복 구현으로
+        # 남아, 둘이 갈라지는 순간 app.state.config가 비정규화 상태가 된다
+        # (v12 리뷰 게이트 HIGH — POST /api/save_config는 이미 반환값을 쓰고
+        # 있었는데 이 라우트만 빠져 있었다).
         print("[DEBUG] 설정 저장 중...")
-        saveConfig(new_config)
-        request.app.state.config = new_config
+        request.app.state.config = saveConfig(new_config)
         print("[DEBUG] 설정 저장 완료")
 
         # gpuCount==2일 때만 채널 분배 반영
