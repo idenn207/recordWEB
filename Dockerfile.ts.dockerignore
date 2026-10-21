@@ -10,6 +10,7 @@ chzzk/
 
 # Python 앱과 Windows 전용 번들
 *.py
+!docker/check-streamlink.py
 module/
 gui/
 dependent/
