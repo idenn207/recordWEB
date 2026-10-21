@@ -39,7 +39,8 @@ ALLOWED_KEYS = {
     "platform", "id", "name", "output_dir",
     "quality", "extension", "record_enabled",
     "recordWatchParty", "watchPartyExcludeTags",
-    "gpu_index"
+    "gpu_index",
+    "yt_auto_upload", "yt_playlist_id"
     }
 
 

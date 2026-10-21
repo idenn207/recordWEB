@@ -259,7 +259,8 @@ def busyFilePaths(recorderManager, channels: List[dict]) -> List[str]:
             fn = recorderManager.get_recording_filename(cid)
             if fn:
                 busy.append(normPath(fn))
-    return busy
+    from module import yt_upload  # 지연 import: yt_upload 가 이 모듈을 import 한다
+    return busy + yt_upload.active_paths()  # 업로드 중인 파일도 이동/삭제/수정 잠금
 
 
 # 녹화중 파일 잠금

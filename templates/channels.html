@@ -31,6 +31,7 @@
                 <a href="/channels" class="restricted-menu">채널관리</a>
                 <a href="/cookies" class="restricted-menu">쿠키관리</a>
                 <a href="/files" class="restricted-menu">파일관리</a>
+                <a href="/uploads" class="restricted-menu">업로드</a>
 
                 <!-- 로그인 정보와 로그아웃 링크 -->
                 <div id="user-info">
@@ -50,6 +51,7 @@
             <a href="/channels" class="restricted-menu">채널관리</a>
             <a href="/cookies" class="restricted-menu">쿠키관리</a>
             <a href="/files" class="restricted-menu">파일관리</a>
+            <a href="/uploads" class="restricted-menu">업로드</a>
 
             <!-- 로그인 정보와 로그아웃 링크 -->
             <div id="user-info">
@@ -164,6 +166,15 @@
             <label>녹화 제외할 태그</label>
             <input type="text" class="edit-watchPartyExcludeTags"
                    value="{{ ', '.join(channel.watchPartyExcludeTags) if channel.watchPartyExcludeTags else '' }}">
+
+            <label>녹화 후 YouTube 자동 업로드</label>
+            <select class="edit-yt-auto">
+              <option value="true" {% if channel.yt_auto_upload %}selected{% endif %}>예</option>
+              <option value="false" {% if not channel.yt_auto_upload %}selected{% endif %}>아니오</option>
+            </select>
+
+            <label>YouTube 재생목록 ID (비우면 추가 안 함)</label>
+            <input type="text" class="edit-yt-playlist" value="{{ channel.yt_playlist_id or '' }}">
 
             <div class="button-row">
               <button class="edit-channel" data-id="{{ channel.id }}">저장</button>

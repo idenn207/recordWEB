@@ -1706,6 +1706,8 @@ function setupChannelFormListeners() {
 		  extension: newExtension,
 		  recordWatchParty: newRecordWatchParty === "true",
 		  watchPartyExcludeTags: newWatchPartyExcludeTags,
+		  yt_auto_upload: editForm.querySelector(".edit-yt-auto").value === "true",
+		  yt_playlist_id: editForm.querySelector(".edit-yt-playlist").value.trim(),
 	    }),
 	  })
         .then((res) => res.json())
@@ -2292,6 +2294,7 @@ function buildRowMenuButton(it) {
           ];
           alert(lines.join('\n'));
         } },
+      { label: 'YouTube 업로드', disabled: !!it.locked || !!it.is_dir, disabledReason: '파일만 업로드할 수 있어요 (녹화 중 제외)', onClick: () => onYtUpload(it) },
       '-',
       { label: '삭제', danger: true, disabled: !!it.locked, disabledReason: lockedReason, onClick: () => onDelete(it) },
     ]);
@@ -2494,6 +2497,18 @@ function openPreview(fullPath) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+
+// YouTube 업로드 큐에 추가
+async function onYtUpload(item) {
+  try {
+    const res = await apiPost("/api/yt/enqueue", { paths: [item.path] });
+    const r = (res.results || [])[0];
+    alert(r && r.ok ? "업로드 큐에 추가했습니다. 업로드 화면에서 진행을 볼 수 있어요." : `추가 실패: ${(r && r.error) || "알 수 없는 오류"}`);
+  } catch (e) {
+    alert(`추가 실패: ${e.message}`);
+  }
 }
 
 

@@ -110,6 +110,7 @@ from module.file_manager import (
 
 from module.recording_adapter import fetchMetadata, startSession
 from module.channel_fsm import ChannelFsm
+from module import yt_upload
 from module.live_recorder import queueBatchLast, queueBatchPattern
 
 PROGRAM_NAME = "recordWEB"
@@ -171,6 +172,9 @@ async def lifespan(app: FastAPI):
         meta_task = asyncio.create_task(
             mc_refreshLoop(app, app.state.meta_fetcher, app.state.save_debounced, app.state.channels_lock)
         )
+
+        # YouTube 자동 업로드 스캔 스레드 (채널 목록은 락 없이 읽는다 — 읽기 전용 스냅샷이면 충분)
+        yt_upload.start(lambda: (list(app.state.channels), busyFilePaths(recorder_manager, app.state.channels)))
 
         # 부팅시 한 번만 자동 시작 (Auto ON일 때)
         if app.state.config.get("autoRecordingMode", False):
@@ -2079,6 +2083,51 @@ async def api_files_streamcopy(
             results.append({"src": s, "error": str(e), "ok": False})
 
     return {"status": "ok", "results": results}
+
+
+# YouTube 업로드 화면/API
+@app.get("/uploads", response_class=HTMLResponse)
+async def uploadsPage(request: Request, login: Any = Depends(requireLogin)):
+    return templates.TemplateResponse(request, "uploads.html", {
+        "request": request,
+        "loginMode": request.app.state.config.get("loginMode", False),
+        "program_version": PROGRAM_VERSION,
+    })
+
+
+@app.get("/api/yt/queue")
+async def api_yt_queue(login: Any = Depends(requireLogin)):
+    return yt_upload.snapshot()
+
+
+@app.post("/api/yt/enqueue")
+async def api_yt_enqueue(
+    request: Request,
+    body: dict = Body(...),
+    login: Any = Depends(requireLogin),
+    fm: Any = Depends(requireFileManagerEnabled),
+):
+    async with request.app.state.channels_lock:
+        roots = buildAllowedRoots(request.app.state.config, request.app.state.channels)
+    results = []
+    for s in body.get("paths") or []:
+        try:
+            yt_upload.enqueue(ensureInRoots(s, roots))
+            results.append({"src": s, "ok": True})
+        except Exception as e:
+            results.append({"src": s, "ok": False, "error": getattr(e, "detail", None) or str(e)})
+    return {"status": "ok", "results": results}
+
+
+@app.post("/api/yt/settings")
+async def api_yt_settings(body: dict = Body(...), login: Any = Depends(requireLogin)):
+    try:
+        if body.get("token"):
+            yt_upload.save_token(body["token"])
+        yt_upload.save_settings(body.get("settings") or {})
+    except ValueError as e:  # json.JSONDecodeError 도 ValueError
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "ok"}
 
 
 # 텔레그램 알림 API 테스트 함수
