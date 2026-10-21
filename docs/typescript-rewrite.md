@@ -53,8 +53,34 @@ YouTube 업로드 → 업로드 설정에서 **새 refresh token**을 입력하�
 아래 **인증 토큰 전체 JSON**에 `refresh_token`, `client_id`, `client_secret`, `token_uri`가 들어 있는 JSON을 등록합니다.
 토큰 값은 화면에 다시 표시하지 않습니다. `POST /api/uploads/reauth`는 `{ "refresh_token": "새 값" }`을 받으며 성공 여부만 반환합니다.
 
-Google 로그인과 OAuth 콜백을 통한 자동 재발급은 지원하지 않습니다. LAN HTTP 주소는 Google OAuth 콜백으로
-등록할 수 없어 도메인·HTTPS 구성이 필요하며, 현재는 발급받은 토큰을 직접 등록하는 방식입니다.
+웹 화면에서 Google 로그인으로 이동하는 기능은 없습니다. 기존 데스크톱 OAuth 클라이언트는 아래 PC용 도구로
+재인증할 수 있습니다. NAS의 LAN HTTP 주소를 Google 콜백으로 등록할 필요가 없습니다.
+
+#### 기존 데스크톱 클라이언트로 PC에서 로그인
+
+Windows PC에서 프로젝트 루트의 **`youtube_reauth.bat`를 더블클릭**합니다.
+처음 실행할 때만 Python 인증 라이브러리를 `tools/.venv/`에 설치합니다(Python 3.10 이상 필요).
+기존 `json/yt_token.json`의 client ID·secret을 읽고, 기본 브라우저에서 Google 로그인·권한 동의 화면을 엽니다.
+업로드할 계정과 YouTube 채널을 선택하면 이 PC의 임시 `127.0.0.1` 콜백으로 돌아와 인증을 완료합니다.
+원본은 유지하고 결과를 `json/yt_token.reauthenticated.json`에 저장한 뒤,
+`http://192.168.0.10:5080/api/uploads/reauth`로 새 refresh token만 전송하여 NAS에 등록합니다.
+SSH 터널·외부 포트 개방·NAS 재시작은 필요 없습니다.
+
+인증만 하고 NAS에 직접 등록하려면:
+
+```powershell
+tools\.venv\Scripts\python.exe tools\youtube_reauth.py
+```
+
+기존 JSON 경로나 NAS 주소를 지정하려면:
+
+```powershell
+tools\.venv\Scripts\python.exe tools\youtube_reauth.py --client-file json\yt_token.json --nas-url http://192.168.0.10:5080
+```
+
+Google Cloud에서 받은 `installed` 형식의 데스크톱 클라이언트 JSON도 `--client-file`로 지정할 수 있습니다.
+NAS 등록에 실패해도 결과 JSON은 남으므로 업로드 설정의 **인증 토큰 전체 JSON**에 등록할 수 있습니다.
+라이브러리는 OAuth state와 PKCE를 처리하며, 인증 대기는 최대 10분입니다. 토큰·secret은 콘솔에 출력하지 않습니다.
 
 ## Python 버전과 달라진 점
 

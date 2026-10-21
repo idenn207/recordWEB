@@ -1,10 +1,15 @@
 """Local desktop OAuth helper tests. Google and NAS requests are mocked."""
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import urlopen
+
+import requests
 
 from tools import youtube_reauth as auth
 
@@ -94,6 +99,64 @@ class YoutubeReauthTests(unittest.TestCase):
         request = open_request.call_args.args[0]
         self.assertEqual(request.full_url, 'http://192.168.0.10:5080/api/uploads/reauth')
         self.assertEqual(json.loads(request.data), {'refresh_token': 'new-refresh'})
+
+    def test_real_library_loopback_and_pkce_without_google_network(self):
+        callbacks = []
+        urls = []
+
+        def open_browser(url, **kwargs):
+            urls.append(url)
+            params = parse_qs(urlsplit(url).query)
+            callback = params['redirect_uri'][0] + '?' + urlencode({
+                'state': params['state'][0], 'code': 'test-code',
+            })
+
+            def visit_callback():
+                with urlopen(callback, timeout=5) as response:
+                    self.assertEqual(response.status, 200)
+
+            thread = threading.Thread(target=visit_callback)
+            callbacks.append(thread)
+            thread.start()
+            return True
+
+        def google_response(request, **kwargs):
+            self.assertEqual(request.url, 'https://oauth2.googleapis.com/token')
+            params = parse_qs(request.body)
+            self.assertEqual(params['code'], ['test-code'])
+            self.assertTrue(params['code_verifier'][0])
+            response = requests.Response()
+            response.status_code = 200
+            response.request = request
+            response._content = json.dumps({
+                'access_token': 'mock-access', 'refresh_token': 'loopback-refresh',
+                'token_type': 'Bearer', 'expires_in': 3600, 'scope': auth.SCOPES[0],
+            }).encode()
+            return response
+
+        with patch('webbrowser.get') as browser, patch('requests.sessions.Session.send', side_effect=google_response):
+            browser.return_value.open.side_effect = open_browser
+            auth.reauthenticate(self.source, self.output)
+        for thread in callbacks:
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(parse_qs(urlsplit(urls[0]).query)['access_type'], ['offline'])
+        self.assertEqual(parse_qs(urlsplit(urls[0]).query)['code_challenge_method'], ['S256'])
+        self.assertEqual(json.loads(self.output.read_text())['refresh_token'], 'loopback-refresh')
+
+    @patch('tools.youtube_reauth.reauthenticate')
+    def test_main_does_not_print_sensitive_exception_details(self, authenticate):
+        import contextlib
+        import io
+        for error in (RuntimeError('secret-must-not-leak'), auth.UserError('안내 문구'), FileNotFoundError(), KeyboardInterrupt()):
+            authenticate.side_effect = error
+            output = io.StringIO()
+            with self.subTest(error=type(error).__name__), contextlib.redirect_stdout(output):
+                self.assertEqual(auth.main([]), 1)
+                self.assertNotIn('secret-must-not-leak', output.getvalue())
+        authenticate.side_effect = None
+        with patch('builtins.print'):
+            self.assertEqual(auth.main([]), 0)
 
 
 if __name__ == '__main__':
