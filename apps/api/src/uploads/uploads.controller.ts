@@ -39,4 +39,13 @@ export class UploadsController {
     }
     return { ok: true };
   }
+
+  @Post('reauth')
+  async reauthenticate(@Body() body: { refresh_token?: unknown } | null) {
+    try {
+      return await this.uploads.reauthenticate(body?.refresh_token);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+  }
 }

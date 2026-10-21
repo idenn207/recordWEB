@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { type UploadSettings, useSaveUploadSettings } from '@/entities/upload';
+import { type UploadSettings, useReauthenticateUpload, useSaveUploadSettings } from '@/entities/upload';
 import { Button, Field, Select, TextArea, TextInput, useToast } from '@/shared/ui';
 
 /** 업로드 설정과 인증 토큰. 토큰은 바꿀 때만 붙여 넣는다 (저장하면 입력란을 비운다). */
@@ -7,6 +7,8 @@ export function UploadSettingsForm({ settings, hasToken }: { settings: UploadSet
   const [s, setS] = useState(settings);
   const [tags, setTags] = useState(settings.tags.join(', '));
   const [token, setToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const reauth = useReauthenticateUpload();
   const save = useSaveUploadSettings();
   const toast = useToast();
 
@@ -60,11 +62,28 @@ export function UploadSettingsForm({ settings, hasToken }: { settings: UploadSet
       <Field label="태그" hint="쉼표로 구분">
         {(id) => <TextInput id={id} value={tags} onChange={(e) => setTags(e.target.value)} />}
       </Field>
-      <Field label="인증 토큰 (JSON)" hint={hasToken ? '등록돼 있습니다. 바꿀 때만 붙여 넣으세요.' : '등록해야 업로드됩니다. refresh_token, client_id, client_secret, token_uri가 들어 있어야 합니다.'}>
+      <div className="grid gap-3 rounded-lg border border-line p-4">
+        <Field label="새 refresh token" hint={hasToken ? '기존과 같은 OAuth 클라이언트에서 발급한 값을 입력하세요. Google 확인에 성공하면 저장하고 업로드를 재개합니다.' : '먼저 아래에서 인증 토큰 전체 JSON을 등록하세요.'}>
+          {(id) => <TextInput id={id} type="password" value={refreshToken} onChange={(e) => setRefreshToken(e.target.value)} autoComplete="off" spellCheck={false} disabled={!hasToken || reauth.isPending} />}
+        </Field>
+        <div>
+          <Button type="button" disabled={!hasToken || !refreshToken.trim() || reauth.isPending || save.isPending} onClick={() => {
+            reauth.mutate(refreshToken.trim(), {
+              onSuccess: () => { setRefreshToken(''); toast('재인증했습니다. 업로드를 재개합니다.'); },
+              onError: (err) => toast(err.message, 'error'),
+              onSettled: () => reauth.reset(),
+            });
+          }}>
+            {reauth.isPending ? '인증 확인 중…' : '재인증'}
+          </Button>
+        </div>
+        <p className="text-sm text-muted" role="status" aria-live="polite">{reauth.isPending ? 'Google에서 새 토큰을 확인하고 있습니다.' : '인증에 실패하면 기존 토큰은 유지됩니다.'}</p>
+      </div>
+      <Field label="인증 토큰 전체 JSON" hint={hasToken ? '클라이언트 정보까지 바꿀 때만 붙여 넣으세요.' : '등록해야 업로드됩니다. refresh_token, client_id, client_secret, token_uri가 들어 있어야 합니다.'}>
         {(id) => <TextArea id={id} rows={4} value={token} onChange={(e) => setToken(e.target.value)} placeholder='{"refresh_token": "...", "client_id": "...", ...}' autoComplete="off" spellCheck={false} />}
       </Field>
       <div>
-        <Button type="submit" variant="primary" disabled={save.isPending}>
+        <Button type="submit" variant="primary" disabled={save.isPending || reauth.isPending}>
           저장
         </Button>
       </div>

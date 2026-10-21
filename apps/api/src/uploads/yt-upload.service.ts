@@ -123,6 +123,50 @@ export class YtUploadService implements OnApplicationBootstrap, OnApplicationShu
     this.authError = '';
   }
 
+  /** Verify with Google before replacing the stored refresh token. Never return tokens to the browser. */
+  async reauthenticate(value: unknown) {
+    if (typeof value !== 'string' || !value.trim() || value.length > 16_384 || /\s/.test(value.trim())) {
+      throw new Error('새 refresh token을 입력하세요.');
+    }
+    const refreshToken = value.trim();
+    const current = readJson<Record<string, unknown> | null>(TOKEN, null);
+    if (!current || typeof current.client_id !== 'string' || !current.client_id || typeof current.client_secret !== 'string' || !current.client_secret) {
+      throw new Error('기존 OAuth 클라이언트 정보가 없습니다. 인증 토큰 전체 JSON을 먼저 등록하세요.');
+    }
+    let response: Response;
+    try {
+      response = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ client_id: current.client_id, client_secret: current.client_secret,
+          refresh_token: refreshToken, grant_type: 'refresh_token' }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new Error('Google에 연결하지 못했습니다. 잠시 후 재인증을 다시 시도하세요.');
+    }
+    if (!response.ok) {
+      throw new Error(response.status < 500
+        ? '재인증에 실패했습니다. 기존과 같은 OAuth 클라이언트에서 발급한 refresh token인지 확인하세요.'
+        : 'Google 인증 서버 오류입니다. 잠시 후 다시 시도하세요.');
+    }
+    let result: { access_token?: unknown; expires_in?: unknown; scope?: unknown } | null;
+    try { result = await response.json(); } catch { throw new Error('Google 인증 응답을 읽지 못했습니다.'); }
+    if (!result || typeof result.access_token !== 'string' || !result.access_token ||
+        typeof result.expires_in !== 'number' || !Number.isFinite(result.expires_in) || result.expires_in <= 0) {
+      throw new Error('Google 인증 응답이 올바르지 않습니다. 다시 시도하세요.');
+    }
+    if (typeof result.scope === 'string' && !result.scope.split(' ').some((s) =>
+      ['https://www.googleapis.com/auth/youtube', 'https://www.googleapis.com/auth/youtube.force-ssl'].includes(s))) {
+      throw new Error('YouTube 업로드와 재생목록 관리 권한이 필요합니다. 해당 권한으로 발급한 refresh token을 입력하세요.');
+    }
+    if (JSON.stringify(readJson(TOKEN, null)) !== JSON.stringify(current)) {
+      throw new Error('확인 중 인증 정보가 변경되었습니다. 재인증을 다시 시도하세요.');
+    }
+    this.saveToken(JSON.stringify({ ...current, refresh_token: refreshToken, token_uri: 'https://oauth2.googleapis.com/token' }));
+    this.tok = { at: result.access_token, exp: Date.now() + (result.expires_in - 300) * 1000 };
+    return { ok: true };
+  }
+
   enqueue(fullPath: string) {
     const p = path.resolve(fullPath);
     const fn = path.basename(p);

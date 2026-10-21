@@ -45,3 +45,12 @@ export function useEnqueueUploads() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['uploads'] }),
   });
 }
+
+export function useReauthenticateUpload() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (refreshToken: string) => api<{ ok: boolean }>('/uploads/reauth', { body: { refresh_token: refreshToken } }),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['uploads'] }),
+    gcTime: 0,
+  });
+}
