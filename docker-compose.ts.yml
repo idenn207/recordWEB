@@ -18,3 +18,5 @@ services:
     volumes:
       - /volume3/docker/recordweb/json:/app/json
       - /volume1/storage/recordweb-files/chzzk:/app/chzzk
+      # X 스페이스 녹음(.m4a). 채널의 저장 경로 기본값이 xspaces 이다.
+      - /volume1/storage/recordweb-files/xspaces:/app/xspaces

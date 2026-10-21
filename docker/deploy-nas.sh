@@ -30,6 +30,7 @@ BK="$OLD/json.bak-$(date +%Y%m%d-%H%M%S)"
 cp -a "$OLD/json" "$BK"
 echo "  $BK"
 
+mkdir -p /volume1/storage/recordweb-files/xspaces  # X 스페이스 녹음 폴더 (compose 볼륨)
 echo "== 3. 이미지 빌드 (기존 컨테이너는 계속 동작)"
 # NAS의 Docker에는 buildx가 없어 기본(레거시) 빌더를 쓴다. 이 빌더는 Dockerfile.ts.dockerignore를 읽지 않으므로 .dockerignore로 복사한다.
 cp Dockerfile.ts.dockerignore .dockerignore
@@ -37,8 +38,9 @@ DOCKER_BUILDKIT=0 $DOCKER build -f Dockerfile.ts -t recordweb-ts:latest .
 
 echo "== 4. 컨테이너 교체"
 if $DOCKER compose version >/dev/null 2>&1; then COMPOSE="$DOCKER compose"; else COMPOSE=docker-compose; fi
+PREV="recordweb-prev-$(date +%Y%m%d-%H%M%S)"  # 이전 컨테이너는 지우지 않고 이름만 바꿔 롤백용으로 남긴다
 $DOCKER stop -t 60 recordweb
-$DOCKER rename recordweb recordweb-py-old
+$DOCKER rename recordweb "$PREV"
 $COMPOSE -f docker-compose.ts.yml up -d --no-build
 
 echo "== 5. 확인"
@@ -51,10 +53,10 @@ if [ "$OK" = "1" ]; then
   echo "  새 서버가 응답합니다: http://$HOST"
   $DOCKER logs --tail 5 recordweb 2>&1 | sed 's/^/  /'
   echo
-  echo "정상 확인 후 옛 컨테이너 삭제: $DOCKER rm recordweb-py-old"
+  echo "정상 확인 후 이전 컨테이너 삭제: $DOCKER rm $PREV"
 else
   echo "  !! 새 서버가 응답하지 않습니다. 로그:"
   $DOCKER logs --tail 30 recordweb 2>&1 | sed 's/^/  /'
 fi
 echo
-echo "롤백: $DOCKER rm -f recordweb && $DOCKER rename recordweb-py-old recordweb && $DOCKER start recordweb"
+echo "롤백: $DOCKER rm -f recordweb && $DOCKER rename $PREV recordweb && $DOCKER start recordweb"
