@@ -31,9 +31,9 @@ cp -a "$OLD/json" "$BK"
 echo "  $BK"
 
 echo "== 3. 이미지 빌드 (기존 컨테이너는 계속 동작)"
-# Dockerfile.ts 전용 ignore 파일은 BuildKit에서만 쓰이므로, 어느 빌더에서도 같게 동작하도록 .dockerignore로도 둔다.
+# NAS의 Docker에는 buildx가 없어 기본(레거시) 빌더를 쓴다. 이 빌더는 Dockerfile.ts.dockerignore를 읽지 않으므로 .dockerignore로 복사한다.
 cp Dockerfile.ts.dockerignore .dockerignore
-DOCKER_BUILDKIT=1 $DOCKER build -f Dockerfile.ts -t recordweb-ts:latest .
+DOCKER_BUILDKIT=0 $DOCKER build -f Dockerfile.ts -t recordweb-ts:latest .
 
 echo "== 4. 컨테이너 교체"
 if $DOCKER compose version >/dev/null 2>&1; then COMPOSE="$DOCKER compose"; else COMPOSE=docker-compose; fi
