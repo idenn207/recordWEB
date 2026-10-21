@@ -1,3 +1,5 @@
+import { normalizeHandle } from '../x/x.js';
+
 // json/config.json 과 json/channels.json 의 스키마. 기존 파일과 키 이름이 같아서 NAS의 설정을 그대로 읽는다.
 export interface Config {
   telegram_enabled: boolean;
@@ -107,7 +109,7 @@ export function normalizeConfig(raw: unknown): Config {
   };
 }
 
-export type Platform = 'chzzk' | 'youtube';
+export type Platform = 'chzzk' | 'youtube' | 'x';
 export interface Channel {
   platform: Platform;
   id: string;
@@ -120,6 +122,7 @@ export interface Channel {
   watchPartyExcludeTags: string[];
   yt_auto_upload?: boolean;
   yt_playlist_id?: string;
+  x_user_id?: string; // X 숫자 사용자 ID. 비어 있으면 핸들로 자동 조회한 뒤 저장한다
 }
 
 const dedupeTags = (v: unknown): string[] => {
@@ -132,20 +135,21 @@ export function normalizeChannel(raw: unknown): Channel | null {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const platform = String(r.platform ?? '').trim().toLowerCase();
   const id = String(r.id ?? r.channelId ?? '').trim();
-  if ((platform !== 'chzzk' && platform !== 'youtube') || !id) return null;
+  if ((platform !== 'chzzk' && platform !== 'youtube' && platform !== 'x') || !id) return null;
   const c: Channel = {
     platform,
-    id,
+    id: platform === 'x' ? normalizeHandle(id) : id,
     name: String(r.name ?? '').trim(),
-    output_dir: String(r.output_dir ?? 'output'),
+    output_dir: String(r.output_dir ?? (platform === 'x' ? 'xspaces' : 'output')),
     quality: String(r.quality ?? 'best'),
-    extension: platform === 'youtube' ? '.mkv' : String(r.extension ?? '.ts'),
+    extension: platform === 'youtube' ? '.mkv' : platform === 'x' ? '.m4a' : String(r.extension ?? '.ts'),
     record_enabled: bool(r.record_enabled, false),
     recordWatchParty: platform === 'chzzk' && bool(r.recordWatchParty, false),
     watchPartyExcludeTags: dedupeTags(r.watchPartyExcludeTags),
   };
   if (r.yt_auto_upload != null) c.yt_auto_upload = bool(r.yt_auto_upload, false);
   if (r.yt_playlist_id != null) c.yt_playlist_id = String(r.yt_playlist_id).trim();
+  if (platform === 'x' && r.x_user_id) c.x_user_id = String(r.x_user_id).trim();
   return c;
 }
 

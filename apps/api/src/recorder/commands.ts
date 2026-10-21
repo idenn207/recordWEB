@@ -69,6 +69,20 @@ export function ytNameQuality(requested: string, meta: YtMeta): { quality: strin
   return { quality, fps: String(fps), ext: '.mkv' };
 }
 
+/** 스페이스 음성 녹음. HLS를 처음 조각(-live_start_index 0)부터 받고, 중간에 끊겨도 재생되도록 fragmented MP4로 쓴다. */
+export function xSpaceFfmpegArgs(masterUrl: string, output: string, httpHeaders?: Record<string, string>): string[] {
+  const headers = Object.entries(httpHeaders ?? {}).map(([k, v]) => `${k}: ${v}\r\n`).join('');
+  return [
+    '-hide_banner', '-loglevel', 'warning', '-y',
+    ...(headers ? ['-headers', headers] : []),
+    '-live_start_index', '0', '-i', masterUrl,
+    '-map', '0:a:0?', '-c', 'copy',
+    '-bsf:a', 'aac_adtstoasc', // HLS의 AAC(ADTS)를 MP4에 넣으려면 필요하다 (없으면 'Malformed AAC bitstream'으로 muxing 실패)
+    '-f', 'mp4', '-movflags', '+frag_keyframe+empty_moov+default_base_moof',
+    output,
+  ];
+}
+
 export function ytDlpArgs(opts: { url: string; outDir: string; tmpDir: string; outTemplate: string; quality: string; cookieFile: string | null; poToken: string; sabr: boolean }): string[] {
   const args = [
     '--ffmpeg-location', path.dirname(bin('ffmpeg')),

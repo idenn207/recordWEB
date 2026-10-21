@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import fs from 'node:fs';
 import { jsonPath } from '../lib/paths.js';
 import { readJson, writeJson } from '../lib/json-store.js';
+import { normalizeXCookieInput, parseXCookies, XCookies } from '../x/x.js';
 import { Channel, Config, normalizeChannel, normalizeChannels, normalizeConfig } from './config.js';
 
 const CONFIG = jsonPath('config.json');
@@ -9,6 +10,7 @@ const CHANNELS = jsonPath('channels.json');
 const COOKIE = jsonPath('cookie.json');
 const YCOOKIE = jsonPath('ycookie.txt');
 const TELEGRAM = jsonPath('telegram.json');
+const XCOOKIE = jsonPath('xcookie.txt');
 
 export interface ChzzkCookies {
   NID_AUT?: string;
@@ -92,6 +94,30 @@ export class StoreService {
   setYoutubeCookieText(text: string) {
     fs.mkdirSync(jsonPath('.'), { recursive: true });
     fs.writeFileSync(YCOOKIE, text, 'utf8');
+  }
+
+  /** yt-dlp에 넘기는 X 쿠키 파일(Netscape). auth_token/ct0가 없으면 null. */
+  getXCookiePath(): string | null {
+    return this.getXCookies() ? XCOOKIE : null;
+  }
+
+  getXCookies(): XCookies | null {
+    return fs.existsSync(XCOOKIE) ? parseXCookies(fs.readFileSync(XCOOKIE, 'utf8')) : null;
+  }
+
+  getXCookieText(): string {
+    return fs.existsSync(XCOOKIE) ? fs.readFileSync(XCOOKIE, 'utf8') : '';
+  }
+
+  /** 빈 문자열이면 삭제(헤더만 남김), 아니면 검증 후 Netscape 형식으로 저장. 검증 실패 시 예외. */
+  setXCookieText(text: string) {
+    fs.mkdirSync(jsonPath('.'), { recursive: true });
+    fs.writeFileSync(XCOOKIE, text.trim() ? normalizeXCookieInput(text) : '# Netscape HTTP Cookie File\n', 'utf8');
+    try {
+      fs.chmodSync(XCOOKIE, 0o600);
+    } catch {
+      /* Windows 등 */
+    }
   }
 
   getTelegram(): { token: string; chatId: string } {

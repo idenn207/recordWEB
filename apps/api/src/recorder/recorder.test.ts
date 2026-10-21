@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../config/config.js';
 import { ffmpegArgs, scaleFilter } from './postprocess.js';
-import { recordFilename, streamlinkHeaders, ytNameQuality } from './commands.js';
+import { recordFilename, streamlinkHeaders, xSpaceFfmpegArgs, ytNameQuality } from './commands.js';
 
 const probe = { vcodec: 'h264', format: 'mpegts', width: 1920, height: 1080 };
 
@@ -78,5 +78,19 @@ describe('scaleFilter', () => {
     expect(scaleFilter('1080p', { ...probe, width: 1280, height: 720 })).toBeNull(); // 업스케일 금지
     expect(scaleFilter('480p', { ...probe, width: 1000, height: 563 })).toBe('scale=w=852:h=478');
     expect(scaleFilter('source', probe)).toBeNull();
+  });
+});
+
+describe('xSpaceFfmpegArgs', () => {
+  it('HLS를 처음부터 받아 AAC를 fragmented MP4로 복사한다', () => {
+    const a = xSpaceFfmpegArgs('https://x/master.m3u8', 'out.m4a', { 'User-Agent': 'ua', Referer: 'r' });
+    expect(a).toEqual(expect.arrayContaining(['-live_start_index', '0', '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-f', 'mp4']));
+    expect(a[a.indexOf('-i') + 1]).toBe('https://x/master.m3u8');
+    expect(a.at(-1)).toBe('out.m4a');
+    expect(a[a.indexOf('-headers') + 1]).toBe('User-Agent: ua\r\nReferer: r\r\n');
+  });
+
+  it('헤더가 없으면 -headers를 넣지 않는다', () => {
+    expect(xSpaceFfmpegArgs('u', 'o.m4a')).not.toContain('-headers');
   });
 });

@@ -1,5 +1,6 @@
 import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
-import { ChildProcess } from 'node:child_process';
+import { ChildProcess, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getLiveMeta, LiveMeta } from '../chzzk/chzzk.js';
@@ -10,7 +11,8 @@ import { absFromRoot } from '../lib/paths.js';
 import { exited, onLines, signalGroup, spawnGroup, terminate } from '../lib/proc.js';
 import { fmtDuration, jitteredWaitMs, sleep, uniqueFilename } from '../lib/text.js';
 import { getYoutubeMeta, YtMeta } from '../youtube/youtube.js';
-import { chzzkProbeArgs, chzzkRecordArgs, recordFilename, ytDlpArgs, ytNameQuality } from './commands.js';
+import { fetchLiveSpaceId, resolveUserId, spaceUrl, xErrorMessage, XError } from '../x/x.js';
+import { chzzkProbeArgs, chzzkRecordArgs, recordFilename, xSpaceFfmpegArgs, ytDlpArgs, ytNameQuality } from './commands.js';
 import { esc, NotifierService } from './notifier.service.js';
 import { moveInto, postProcess } from './postprocess.js';
 
@@ -32,6 +34,8 @@ interface Runtime {
   startedAt: number | null;
   stopping: boolean;
   done: Promise<void>;
+  error: string; // 감시를 막는 문제(쿠키 만료 등). 정상 조회되면 비운다
+  xLive: boolean;
 }
 
 export interface ChannelStatus {
@@ -40,6 +44,7 @@ export interface ChannelStatus {
   duration: string;
   startedAt: number | null;
   meta: UiMeta | null;
+  error: string;
 }
 
 const TAIL_COOLDOWN_MS = 60_000; // 방종 직후 같은 라이브로 되감기 재접속 방지
@@ -48,6 +53,8 @@ const MAX_PROBES = 4;
 const MIN_OK_SIZE = 1024 * 1024; // yt-dlp 결과가 이보다 작으면 깨진 파일로 본다
 
 const TRANSIENT = [/Failed to fetch segment.*(404|403|416)/s, /No new segments in playlist/, /Read timeout/];
+
+const execFileP = promisify(execFile);
 
 @Injectable()
 export class RecorderService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -76,7 +83,7 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
 
   private runtime(id: string): Runtime {
     let r = this.rt.get(id);
-    if (!r) this.rt.set(id, (r = { state: 'idle', abort: null, proc: null, file: null, startedAt: null, stopping: false, done: Promise.resolve() }));
+    if (!r) this.rt.set(id, (r = { state: 'idle', abort: null, proc: null, file: null, startedAt: null, stopping: false, done: Promise.resolve(), error: '', xLive: false }));
     return r;
   }
 
@@ -90,6 +97,7 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
       duration: r.state === 'recording' && r.startedAt ? fmtDuration((Date.now() - r.startedAt) / 1000) : '',
       startedAt: r.startedAt,
       meta: this.cachedMeta(ch),
+      error: r.error,
     };
   }
 
@@ -158,6 +166,11 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
       const m = await getLiveMeta(ch, this.store.getChzzkCookies());
       return m && { isLive: m.status === 'OPEN', liveTitle: m.liveTitle, category: m.category, thumbnailUrl: m.thumbnailUrl };
     }
+    if (ch.platform === 'x') {
+      // 외부 호출 없이 감시 루프가 마지막으로 본 결과를 보여 준다 (X 조회 횟수를 늘리지 않기 위해)
+      const live = this.runtime(ch.id).xLive;
+      return { isLive: live, liveTitle: live ? '스페이스 진행 중' : '', category: '스페이스', thumbnailUrl: null };
+    }
     const y = await getYoutubeMeta(ch.id, this.store.getYoutubeCookiePath());
     return { isLive: y.isLive, liveTitle: y.liveTitle, category: y.category, thumbnailUrl: y.thumbnailUrl };
   }
@@ -172,12 +185,13 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
         if (!user && !ch.record_enabled) break; // 자동 경로는 토글이 꺼지면 감시 종료
         const cfg = this.store.getConfig();
 
+        const wait = ch.platform === 'x' ? Math.max(cfg.recheckInterval, 120) : cfg.recheckInterval; // X는 조회 제한을 피하려고 최소 2분
         const live = await this.detect(ch);
         if (!live.open) {
           if (!ch.record_enabled) break; // 토글 OFF의 1회성 시작은 방송이 없으면 그대로 끝
           r.state = 'watching';
           void this.notifier.notify(`<b>${name}</b> 채널은 <i>예약녹화 중</i>으로 전환되었습니다.`, { channelId: ch.id, state: 'watching' });
-          await sleep(jitteredWaitMs(ch.id, cfg.recheckInterval), sig);
+          await sleep(jitteredWaitMs(ch.id, wait), sig);
           continue;
         }
 
@@ -189,7 +203,7 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
         }
 
         r.state = 'recording';
-        const ended = await (ch.platform === 'chzzk' ? this.recordChzzk(ch, r, live.chzzk!) : this.recordYoutube(ch, r, live.youtube!));
+        const ended = await (ch.platform === 'chzzk' ? this.recordChzzk(ch, r, live.chzzk!) : ch.platform === 'x' ? this.recordXSpace(ch, r, live.xSpaceId!) : this.recordYoutube(ch, r, live.youtube!));
         r.state = 'watching';
         if (sig.aborted) break;
 
@@ -200,14 +214,15 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
         }
         if (ended === 'ended') await sleep(TAIL_COOLDOWN_MS, sig);
         if (!ch.record_enabled) break;
-        await sleep(jitteredWaitMs(ch.id, cfg.recheckInterval), sig);
+        await sleep(jitteredWaitMs(ch.id, wait), sig);
       }
     } catch (e) {
       console.error(`[REC] ${ch.name} 루프 오류:`, e);
     }
   }
 
-  private async detect(ch: Channel): Promise<{ open: boolean; chzzk?: LiveMeta; youtube?: YtMeta }> {
+  private async detect(ch: Channel): Promise<{ open: boolean; chzzk?: LiveMeta; youtube?: YtMeta; xSpaceId?: string }> {
+    if (ch.platform === 'x') return this.detectX(ch);
     if (ch.platform === 'youtube') {
       const y = await getYoutubeMeta(ch.id, this.store.getYoutubeCookiePath());
       return { open: y.isLive, youtube: y };
@@ -220,6 +235,73 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
       m = { ...(m ?? ({} as LiveMeta)), status: 'OPEN', liveTitle: m?.liveTitle ?? ch.name, resolvedQuality: m?.resolvedQuality ?? ch.quality ?? 'best', recordQuality: m?.recordQuality ?? ch.quality, frameRate: m?.frameRate ?? '', startTime: m?.startTime ?? new Date().toLocaleDateString('sv-SE'), availableQualities: [], category: m?.category ?? '', thumbnailUrl: null, watchPartyNo: m?.watchPartyNo ?? null, watchPartyTag: m?.watchPartyTag ?? '' };
     }
     return { open, chzzk: m ?? undefined };
+  }
+
+  /** X 프로필이 지금 스페이스를 열었는지. 실패 원인은 채널 상태(error)로 남겨 화면에서 바로 보이게 한다. */
+  private async detectX(ch: Channel): Promise<{ open: boolean; xSpaceId?: string }> {
+    const r = this.runtime(ch.id);
+    const cookies = this.store.getXCookies();
+    try {
+      if (!cookies) throw new XError('no-cookie', '');
+      let userId = ch.x_user_id;
+      if (!userId) {
+        userId = (await resolveUserId(ch.id, cookies)).id;
+        this.store.updateChannel(ch.id, { x_user_id: userId }); // 다음부터는 조회를 건너뛴다
+      }
+      const spaceId = await fetchLiveSpaceId(userId, cookies);
+      r.error = '';
+      r.xLive = !!spaceId;
+      return { open: !!spaceId, xSpaceId: spaceId ?? undefined };
+    } catch (e) {
+      r.xLive = false;
+      const msg = xErrorMessage(e);
+      if (r.error !== msg && e instanceof XError && e.kind === 'auth') void this.notifier.notify(`<b>${esc(ch.name)}</b> 스페이스 감시 중단: ${esc(msg)}`);
+      r.error = msg;
+      return { open: false };
+    }
+  }
+
+  /** yt-dlp로 스페이스의 master URL을 얻고 ffmpeg로 음성을 그대로 복사한다. 스페이스가 끝나면 ffmpeg가 스스로 종료한다. */
+  private async recordXSpace(ch: Channel, r: Runtime, spaceId: string): Promise<'ended' | 'exit'> {
+    const cookiePath = this.store.getXCookiePath();
+    let info: any;
+    try {
+      const { stdout } = await execFileP(bin('yt-dlp'), ['-J', '--no-warnings', ...(cookiePath ? ['--cookies', cookiePath] : []), spaceUrl(spaceId)], { timeout: 90_000, maxBuffer: 1 << 26 });
+      info = JSON.parse(stdout);
+    } catch (e) {
+      r.error = `스페이스 정보를 가져오지 못했습니다: ${String((e as Error).message).split('\n').slice(0, 2).join(' ').slice(0, 200)}`;
+      return 'exit';
+    }
+    if (info.is_live === false) return 'exit'; // 이미 끝난 스페이스의 다시듣기는 받지 않는다
+    const fmts: any[] = info.formats ?? [];
+    const master: string | undefined = fmts.find((f) => f.manifest_url)?.manifest_url ?? fmts.at(-1)?.url ?? info.url;
+    if (!master) {
+      r.error = '스페이스의 재생 주소(master URL)를 찾지 못했습니다.';
+      return 'exit';
+    }
+    r.error = '';
+
+    const dir = absFromRoot(ch.output_dir);
+    fs.mkdirSync(dir, { recursive: true });
+    const started = info.timestamp ?? info.release_timestamp;
+    const startTime = (started ? new Date(started * 1000) : new Date()).toLocaleDateString('sv-SE');
+    const filename = recordFilename('[{start_time}] {channel_name} 스페이스 {safe_live_title}{file_extension}', { channelName: ch.name, title: String(info.title ?? '제목 없음'), startTime, quality: '', fps: '', ext: ch.extension }, 'youtube');
+    const output = path.join(dir, uniqueFilename(dir, filename));
+    const proc = spawnGroup(bin('ffmpeg'), xSpaceFfmpegArgs(master, output, info.http_headers), { stdio: ['ignore', 'ignore', 'pipe'] });
+    this.attach(r, proc, output);
+    void this.notifier.notify(`<b>${esc(ch.name)}</b> 스페이스 녹음이 <i>시작</i>되었습니다.\n${esc(String(info.title ?? ''))}`, { channelId: ch.id, state: 'recording' });
+    let tail = '';
+    proc.stderr!.on('data', (d: Buffer) => (tail = (tail + d.toString('utf8')).slice(-600)));
+    await exited(proc);
+    this.detach(r);
+
+    const ok = fs.existsSync(output) && fs.statSync(output).size > 50 * 1024;
+    if (!ok) {
+      fs.rmSync(output, { force: true });
+      if (!r.stopping) r.error = `스페이스 녹음에 실패했습니다: ${tail.trim().split('\n').pop() ?? ''}`.slice(0, 240);
+      return 'exit';
+    }
+    return 'ended';
   }
 
   private watchPartyAllowed(ch: Channel, m: LiveMeta): boolean {
@@ -345,7 +427,8 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
   }
 
   private stopProc(p: ChildProcess, platform?: string) {
-    return terminate(p, platform === 'youtube' ? 'SIGINT' : 'SIGTERM', platform === 'youtube' ? 60_000 : 5000);
+    const graceful = platform === 'youtube' || platform === 'x'; // 마무리(mux, moov 기록)를 하도록 SIGINT
+    return terminate(p, graceful ? 'SIGINT' : 'SIGTERM', platform === 'youtube' ? 60_000 : graceful ? 20_000 : 5000);
   }
 
   /** 같은 파일을 두 번 후처리하지 않는다. 후처리는 녹화 루프를 막지 않고 뒤에서 돈다. */
