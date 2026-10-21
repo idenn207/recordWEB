@@ -14,7 +14,7 @@ function Thumb({ channel }: { channel: ChannelWithStatus }) {
         <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} className="h-full w-full object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-muted">
-          <Icon name={channel.platform === 'youtube' ? 'play' : 'channels'} size={22} />
+          <Icon name={channel.platform === 'youtube' ? 'play' : channel.platform === 'x' ? 'rec' : 'channels'} size={22} />
         </div>
       )}
     </div>
@@ -35,9 +35,25 @@ function ChannelRow({ channel }: { channel: ChannelWithStatus }) {
           {meta?.isLive && !recording && <Badge tone="ok">방송 중</Badge>}
         </div>
         <p className="mt-0.5 truncate text-muted" title={meta?.liveTitle}>
-          {meta ? (meta.isLive ? meta.liveTitle : '방송 중이 아닙니다') : '불러오는 중…'}
+          {meta ? (meta.isLive ? meta.liveTitle : channel.platform === 'x' ? '진행 중인 스페이스가 없습니다' : '방송 중이 아닙니다') : '불러오는 중…'}
           {meta?.isLive && meta.category && <span> · {meta.category}</span>}
         </p>
+        {channel.status.error && (
+          <p role="alert" className="mt-1 flex items-start gap-1.5 text-warn">
+            <Icon name="alert" size={16} className="mt-0.5 shrink-0" />
+            <span>
+              {channel.status.error}
+              {channel.platform === 'x' && (
+                <>
+                  {' '}
+                  <Link to="/settings" className="text-link underline underline-offset-2">
+                    설정 열기
+                  </Link>
+                </>
+              )}
+            </span>
+          </p>
+        )}
         {recording && channel.status.filename && (
           <p className="mt-0.5 truncate font-mono text-[0.8rem] text-muted" title={channel.status.filename}>
             {channel.status.filename}

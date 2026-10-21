@@ -35,6 +35,7 @@ export interface Config {
 export interface Secrets {
   chzzk: { NID_AUT?: string; NID_SES?: string };
   youtubeCookie: string;
+  xCookie: string;
   telegram: { token: string; chatId: string };
 }
 

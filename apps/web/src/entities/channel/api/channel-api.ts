@@ -22,4 +22,13 @@ export const useStartAll = () => useChannelMutation(() => api('/recording/start-
 export const useStopAll = () => useChannelMutation(() => api('/recording/stop-all', { method: 'POST' }));
 export const useAddChannel = () => useChannelMutation((c: Partial<Channel>) => api<Channel>('/channels', { body: c }));
 export const useUpdateChannel = () => useChannelMutation(({ id, patch }: { id: string; patch: Partial<Channel> }) => api<Channel>(`/channels/${encodeURIComponent(id)}`, { method: 'PUT', body: patch }));
+export interface XCheckResult {
+  steps: { name: string; ok: boolean; detail: string }[];
+  userId?: string;
+  spaceId?: string | null;
+}
+
+/** X 연결 확인: 쿠키 → 사용자 ID → 스페이스 조회를 단계별로 돌려준다. */
+export const useCheckX = () => useMutation({ mutationFn: (v: { handle: string; userId?: string }) => api<XCheckResult>('/x/check', { body: v }) });
+
 export const useDeleteChannel = () => useChannelMutation((id: string) => api(`/channels/${encodeURIComponent(id)}`, { method: 'DELETE' }));

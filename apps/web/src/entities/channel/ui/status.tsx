@@ -1,6 +1,6 @@
-import { Badge } from '@/shared/ui';
+import { Badge, Icon } from '@/shared/ui';
 import { useElapsed } from '../lib/use-elapsed';
-import type { ChannelWithStatus, Platform } from '../model/types';
+import { type ChannelWithStatus, PLATFORM_NAME, type Platform } from '../model/types';
 
 /** 상태는 색 + 문구(+ 녹화 중 깜빡이는 점)로 전달한다. */
 export function StatusBadge({ channel }: { channel: ChannelWithStatus }) {
@@ -12,12 +12,24 @@ export function StatusBadge({ channel }: { channel: ChannelWithStatus }) {
       </Badge>
     );
   }
-  if (channel.status.state === 'watching') return <Badge tone="warn">예약 녹화 중</Badge>;
+  // 감시를 막는 문제가 있으면 "예약 녹화 중"처럼 정상으로 보이지 않게 한다
+  if (channel.status.state === 'watching') return <Badge tone="warn">{channel.status.error ? '감시 오류' : '예약 녹화 중'}</Badge>;
   return <Badge>대기 중</Badge>;
 }
 
 export function PlatformMark({ platform, showName = false }: { platform: Platform; showName?: boolean }) {
-  const name = platform === 'chzzk' ? '치지직' : '유튜브';
+  const name = PLATFORM_NAME[platform];
+  if (platform === 'x') {
+    // X는 별도 이미지 없이 검은 타일 위에 X를 그린다 (다른 플랫폼 아이콘과 같은 크기)
+    return (
+      <span className="inline-flex items-center gap-1.5" title={name}>
+        <span className="inline-flex h-4 w-4 items-center justify-center rounded-[4px] bg-ink text-bg">
+          <Icon name="x" size={11} />
+        </span>
+        {showName ? <span>{name}</span> : <span className="sr-only">{name}</span>}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1.5">
       <img src={`/img/${platform}_icon.png`} alt={showName ? '' : name} title={name} width={16} height={16} className="h-4 w-4 rounded-[4px]" />

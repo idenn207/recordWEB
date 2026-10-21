@@ -148,6 +148,12 @@ export function SettingsForm({ config, secrets }: { config: Config; secrets: Sec
             </Field>
             {text('ytPoToken', '유튜브 PO 토큰', '여러 개는 쉼표로 구분. 접두사가 없으면 mweb.gvs로 처리합니다', true)}
 
+            <p className="mt-2 font-bold">X(트위터) 로그인 쿠키</p>
+            <p className="-mt-3 text-[0.8rem] text-muted">스페이스 녹음에 필요합니다. 쿠키 없이는 지금 스페이스가 열렸는지 알 수 없습니다</p>
+            <Field label="auth_token, ct0" hint="브라우저에서 x.com에 로그인 → 개발자도구 → Application → Cookies에서 auth_token과 ct0 값을 복사해 'auth_token=값; ct0=값' 형태로 붙여 넣으세요. Netscape 쿠키 파일 내용도 됩니다. 비우고 저장하면 삭제됩니다.">
+              {(id) => <TextArea id={id} rows={3} value={sec.xCookie} onChange={(e) => setSec({ ...sec, xCookie: e.target.value })} spellCheck={false} autoComplete="off" placeholder="auth_token=...; ct0=..." />}
+            </Field>
+
             <p className="mt-2 font-bold">텔레그램 알림</p>
             <ToggleRow label="알림 사용" hint="녹화 시작·종료를 텔레그램으로 알립니다" checked={cfg.telegram_enabled} onChange={(v) => set('telegram_enabled', v)} />
             <div className="grid gap-4 sm:grid-cols-2">

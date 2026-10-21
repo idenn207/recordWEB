@@ -53,19 +53,19 @@ export function ChannelTable() {
                       {c.id}
                     </div>
                     <div className="mt-0.5 text-[0.8rem] text-muted md:hidden">
-                      {c.quality} {c.extension} · {c.output_dir}
+                      {c.platform === 'x' ? '스페이스 음성' : c.quality} {c.extension} · {c.output_dir}
                       {c.platform === 'chzzk' && c.yt_auto_upload && ' · 자동 업로드'}
                     </div>
                   </td>
                   <td className={`${TD} font-mono text-[0.85rem] text-muted max-md:hidden`}>{c.output_dir}</td>
                   <td className={`${TD} text-muted max-md:hidden`}>
-                    {c.quality} <span className="font-mono text-[0.8rem]">{c.extension}</span>
+                    {c.platform === 'x' ? '스페이스 음성' : c.quality} <span className="font-mono text-[0.8rem]">{c.extension}</span>
                   </td>
                   <td className={TD}>
                     <Toggle checked={c.record_enabled} onChange={() => toggle.mutate(c.id)} label={`${c.name} 자동 녹화`} />
                   </td>
                   <td className={`${TD} max-md:hidden`}>
-                    {c.platform === 'youtube' ? (
+                    {c.platform !== 'chzzk' ? (
                       <span className="text-muted">해당 없음</span>
                     ) : c.yt_auto_upload ? (
                       <Badge tone="ok">자동{c.yt_playlist_id ? ' · 재생목록' : ''}</Badge>
@@ -95,7 +95,8 @@ export function ChannelTable() {
         onClose={() => setDeleting(null)}
         onConfirm={() => deleting && remove.mutate(deleting.id, { onSuccess: () => toast(`${deleting.name} 채널을 삭제했습니다`), onError: (e) => toast(e.message, 'error'), onSettled: () => setDeleting(null) })}
         title={`${deleting?.name ?? ''} 채널을 삭제할까요?`}
-        confirmLabel="삭제"
+        confirmLabel={`${deleting?.name ?? ''} 채널 삭제`}
+        requireText={deleting?.status.state === 'recording' ? deleting.name : undefined}
         danger
         busy={remove.isPending}
       >
