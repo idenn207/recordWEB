@@ -24,7 +24,10 @@ export class ChannelsController {
   @Post('channels')
   add(@Body() body: unknown) {
     try {
-      return this.store.addChannel(body);
+      const ch = this.store.addChannel(body);
+      // 자동 녹화가 켜진 채널은 서버를 재시작하지 않아도 바로 감시를 시작한다
+      if (ch.record_enabled && this.store.getConfig().autoRecordingMode) this.recorder.start(ch.id, false);
+      return ch;
     } catch (e) {
       throw new BadRequestException((e as Error).message);
     }
