@@ -1,0 +1,11 @@
+{
+  "name": "recordweb",
+  "private": true,
+  "scripts": {
+    "dev:api": "pnpm --filter api dev",
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter web build && pnpm --filter api build",
+    "start": "node apps/api/dist/main.js",
+    "test": "pnpm -r test"
+  }
+}

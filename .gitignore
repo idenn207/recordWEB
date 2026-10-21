@@ -11,8 +11,11 @@ dependent/ytarchive/
 dependent/yt-dlp/
 
 # Actual stream recordings / downloads
-chzzk/
+/chzzk/
 *.ts
+# TypeScript 소스는 녹화 파일(.ts, MPEG-TS)이 아니다
+!apps/**/*.ts
+!Dockerfile.ts
 *.mp4
 *.mkv
 
@@ -33,3 +36,6 @@ Thumbs.db
 .claude/state/
 .claude/settings.local.json
 .superpowers/
+
+node_modules/
+dist/
