@@ -1,0 +1,20 @@
+# TypeScript 버전. 기존 compose와 같은 포트/볼륨을 쓰므로 둘을 동시에 띄우지 않는다.
+#   기존(Python) 정지 → docker compose -f docker-compose.ts.yml up -d --build
+# 설정/상태 JSON(channels.json, config.json, cookie.json, yt_*.json)은 기존 파일을 그대로 읽는다.
+services:
+  recordweb:
+    build:
+      context: .
+      dockerfile: Dockerfile.ts
+    image: recordweb-ts:latest
+    container_name: recordweb
+    init: true
+    restart: unless-stopped
+    # 컨테이너가 중지되면 녹화 프로세스를 정리하고 후처리를 시작할 시간을 준다.
+    stop_grace_period: 30s
+    ports:
+      # NAS의 LAN IP에만 게시한다(앱 레벨 로그인이 없으므로 네트워크 경계가 유일한 접근 통제).
+      - '192.168.0.10:5080:5000'
+    volumes:
+      - /volume3/docker/recordweb/json:/app/json
+      - /volume1/storage/recordweb-files/chzzk:/app/chzzk
