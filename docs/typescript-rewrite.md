@@ -32,9 +32,14 @@ Windows 개발 환경에서는 `dependent/` 안의 번들 바이너리를 자동
 
 ## NAS 배포 (Docker)
 
+소스를 NAS의 `/volume3/docker/recordweb-ts/`에 올린 뒤, root 권한으로 스크립트를 실행합니다.
+녹화 중인 채널이 있으면 확인을 묻고, json 백업 → 이미지 빌드(기존 컨테이너 유지) → 교체 → 응답 확인 순서로 진행하며 롤백 명령을 출력합니다.
+
 ```bash
-docker compose -f docker-compose.ts.yml up -d --build   # 기존 컨테이너를 먼저 중지
+ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'
 ```
+
+수동으로 하려면 기존 컨테이너를 먼저 중지한 뒤 `docker compose -f docker-compose.ts.yml up -d --build`를 실행합니다.
 
 기존과 같은 포트·볼륨(`/app/json`, `/app/chzzk`)을 씁니다. YouTube 업로드는 기존에 배치로 돌리던
 `yt_token.json`, `yt_upload_state.json`을 `json/` 폴더에 두면 이어서 사용합니다(상태가 있어야 이미 올린 99개가 중복되지 않습니다).
