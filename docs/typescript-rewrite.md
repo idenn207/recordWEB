@@ -44,6 +44,18 @@ ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'
 기존과 같은 포트·볼륨(`/app/json`, `/app/chzzk`)을 씁니다. YouTube 업로드는 기존에 배치로 돌리던
 `yt_token.json`, `yt_upload_state.json`을 `json/` 폴더에 두면 이어서 사용합니다(상태가 있어야 이미 올린 99개가 중복되지 않습니다).
 
+### YouTube 재인증
+
+YouTube 업로드 → 업로드 설정에서 **새 refresh token**을 입력하고 **재인증**을 누릅니다.
+기존 `json/yt_token.json`의 client ID와 secret으로 Google에 유효성을 확인한 뒤 refresh token만 교체합니다.
+실패하면 기존 파일을 유지하며, 성공하면 인증 오류를 해제하고 다음 업로드 스캔(기본 최대 5분)부터 자동으로 재개합니다.
+새 토큰은 기존과 같은 OAuth 클라이언트에서 발급해야 합니다. 클라이언트가 달라졌거나 최초 등록이라면
+아래 **인증 토큰 전체 JSON**에 `refresh_token`, `client_id`, `client_secret`, `token_uri`가 들어 있는 JSON을 등록합니다.
+토큰 값은 화면에 다시 표시하지 않습니다. `POST /api/uploads/reauth`는 `{ "refresh_token": "새 값" }`을 받으며 성공 여부만 반환합니다.
+
+Google 로그인과 OAuth 콜백을 통한 자동 재발급은 지원하지 않습니다. LAN HTTP 주소는 Google OAuth 콜백으로
+등록할 수 없어 도메인·HTTPS 구성이 필요하며, 현재는 발급받은 토큰을 직접 등록하는 방식입니다.
+
 ## Python 버전과 달라진 점
 
 - 제외: GPU 하드웨어 인코딩, 분할 녹화(overlap), `timemachine` 플러그인, 다시보기 다운로더, PyQt GUI, 앱 로그인/계정.
