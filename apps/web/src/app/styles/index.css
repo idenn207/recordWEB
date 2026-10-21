@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+
+/*
+ * 토큰은 DESIGN.md("The Operator's Console")를 따른다.
+ * 강조색(페리윈클)은 링크·주요 버튼·활성 토글·포커스·행 선택 틴트에만 쓴다 (One Voice Rule).
+ * 테두리는 테마당 하나(--border) 1px (One Border Rule). 시스템 라이트/다크 설정을 따른다.
+ */
+:root {
+  color-scheme: light;
+  --bg: #f5f6fb;
+  --surface: #fbfcff;
+  --card: #ffffff;
+  --surface-muted: #f3f4f6;
+  --border: #e3e7f2;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --accent: #eef2ff; /* 행 hover/선택 틴트 */
+  --brand: #c7d2fe; /* 주요 버튼 */
+  --brand-hover: #b7c3ff;
+  --brand-ink: #111827;
+  --link: #4f46e5;
+  --focus-ring: rgba(99, 102, 241, 0.55);
+  --toggle-on: #c7d2fe;
+  --toggle-thumb-on: #3730a3;
+  --rec: #ef4444;
+  --ok: #065f46;
+  --ok-bg: #ecfdf5;
+  --warn: #92400e;
+  --warn-bg: #fffbeb;
+  --shadow-card: 0 6px 16px -10px rgba(0, 0, 0, 0.25);
+  --shadow-float: 0 12px 28px -12px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f14;
+    --surface: #0f1520;
+    --card: #0f1520;
+    --surface-muted: rgba(255, 255, 255, 0.05);
+    --border: rgba(255, 255, 255, 0.14);
+    --text: #e6ebf2;
+    --text-muted: #a8b3c2;
+    --accent: rgba(159, 176, 255, 0.12);
+    --brand: #1b2233;
+    --brand-hover: #232c44;
+    --brand-ink: #e6ebf2;
+    --link: #9fb0ff;
+    --focus-ring: rgba(159, 176, 255, 0.7);
+    --toggle-on: #9fb0ff;
+    --toggle-thumb-on: #0b0f14;
+    --rec: #ff6b6b;
+    --ok: #7ce1a4;
+    --ok-bg: #0f291e;
+    --warn: #f0c36a;
+    --warn-bg: #2a2111;
+    --shadow-card: 0 8px 20px -12px rgba(0, 0, 0, 0.8);
+    --shadow-float: 0 12px 28px -12px rgba(0, 0, 0, 0.8);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-muted-bg: var(--surface-muted);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-tint: var(--accent);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-ink: var(--brand-ink);
+  --color-link: var(--link);
+  --color-toggle-on: var(--toggle-on);
+  --color-toggle-thumb: var(--toggle-thumb-on);
+  --color-rec: var(--rec);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --shadow-card: var(--shadow-card);
+  --shadow-float: var(--shadow-float);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Apple SD Gothic Neo', 'Malgun Gothic', '맑은 고딕', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    word-break: keep-all; /* 한글 단어 중간에서 줄바꿈하지 않는다 */
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 브라우저 기본 표면도 팔레트로 맞춘다: 선택 영역, 캐럿, 스크롤바, 포커스 */
+  ::selection {
+    background: color-mix(in srgb, var(--link) 35%, transparent);
+    color: inherit;
+  }
+  input,
+  textarea,
+  select {
+    caret-color: var(--link);
+    accent-color: var(--link);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 녹화 중 표시: 유일하게 허용된 상시 모션. 감소 모션 설정이면 정지한다. */
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.rec-dot {
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
