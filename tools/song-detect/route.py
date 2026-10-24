@@ -5,6 +5,7 @@
   auto   : 위에 해당하지 않음 (125~340초, 같은 채널 장면과 거의 같음)
 임계값 근거: 블라인드 검토(2026-10-24)에서 auto 6개 중 대기 화면 3개가 장면 거리 0.010 이었고 진짜 라이브는 0.059~0.073 이라 0.03 미만은 review.
 기존 근거: 같은 채널 기준에서 확인된 라이브 <=0.07, 콘서트/따라 부르기/같이 보기 >=0.08 (마시로, 후야, 나나 3채널).
+선택 입력 g['multi'] = scene_multi 의 live/watch/idle/unknown (없으면 기존 동작 그대로).
 사용: python route.py <segments.json 입력> <출력> [has_refs=1]"""
 import json, sys
 
@@ -15,11 +16,14 @@ P = dict(scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=34
 def tier(g, has_refs, p=P):
     if not g["keep"]:
         return "drop", g.get("why") or "audio-gate"
+    m = g.get("multi")                                   # scene_multi.classify 결과(선택). idle/watch 는 레이아웃 근거라 채널 기준 없이도 drop
+    if m in ("idle", "watch"):
+        return "drop", f"다중 참조: {m}"
     d = g.get("scene")
     if has_refs and d is not None and d > p["scene_drop"]:
         return "drop", f"scene {d:.2f}"
     if not has_refs:
-        return "review", "새 채널: 같은 채널 기준 프레임 없음"
+        return "review", "새 채널: 같은 채널 기준 프레임 없음" + (" (다중 참조 live)" if m == "live" else "")   # live 여도 auto 는 안 준다
     if d is None:
         return "review", "장면 거리를 읽지 못함"
     if d < p["scene_idle"]:

@@ -11,4 +11,9 @@ assert tier(seg(scene=0.010), True)[0] == "review"        # 대기 화면(기준
 assert tier(seg(scene=None), True)[0] == "review"          # 장면을 못 읽으면 통과시키지 않는다
 assert tier(seg(len=100), True)[0] == "review"             # 1절 또는 짧은 랩
 assert tier(seg(len=400), True)[0] == "review"             # 곡 합쳐짐 의심
+assert tier(seg(multi="watch"), False) == ("drop", "다중 참조: watch")   # 기준 없는 새 채널도 같이 보기는 drop
+assert tier(seg(multi="idle", scene=None), True)[0] == "drop"              # 대기 화면
+assert "다중" in tier(seg(multi="live"), False)[1] and tier(seg(multi="live"), False)[0] == "review"   # live 라도 새 채널은 auto 금지
+assert tier(seg(multi="unknown"), False)[0] == "review"
+assert tier(seg(multi="live"), True)[0] == "auto"          # 기존 채널 기준 경로는 그대로
 print("ok")

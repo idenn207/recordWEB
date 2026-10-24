@@ -114,6 +114,7 @@ def vocal_ratio(wav: Path, start, end, p=P):
         off = f.read(4096).find(b"data") + 8
     pcm = np.memmap(wav, dtype="<i2", mode="r", offset=off)
     w, chunk, ratios = p["vocal_win_s"], 60, []
+    end = min(end, len(pcm) / SR)                                # 후보 패딩이 파일 끝을 넘으면 빈 청크로 resample 이 죽는다
     t = start
     while t < end:
         te = min(end, t + chunk)

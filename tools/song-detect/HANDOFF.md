@@ -103,11 +103,15 @@ python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.
 2. 같이보기 판별: 화면에 영상 창이 크게 뜬 레이아웃 탐지(장면 거리 대신 승인된 같이보기 프레임 군집).
 3. 경계 후처리: 끝이 일찍 잘리는 문제(랩, 음악적 종료)와 +-2초 내 무음 지점 스냅.
 
-## 9. 중단 시점 상태 (2026-10-24, 토큰 소진으로 워크플로우 wf_0c203437 중단)
+## 9. 후속 작업 결과 (2026-10-24, 워크플로우 wf_ebd5e696)
 
-V08 은 V17 과 동일(대기 화면 리코 커버곡)로 라벨 확정. 아래 4개 병렬 작업이 중간에 멈췄다. 파일은 미커밋·미검증이므로 먼저 각 파일을 읽고 실행해 보고 이어서 진행한다(처음부터 다시 만들지 말 것).
-- 평가 하네스: `labels.py`, `eval_blind.py` (작성됨, 실행/수치 미확인)
-- 다중 참조 장면 게이트: `scene_multi.py`, `scene_new.py`, `route.py`/`test_route.py` 수정 중(미검증, `python test_route.py` 로 먼저 확인)
-- 경계 후처리: `snap.py` (작성 중, 개선 전후 오차표 미확인)
-- 신규 표본: `mk_vods10.py`, `run_new.sh`, `blind_new.py` (토아 10-24 싱크룸 + 추가 방송 수집/탐지, 결과 폴더 data/exp10, 검토 클립 data/blind6 - 완성 여부 미확인, GPU 컨테이너는 중지함)
-이어서 할 일: 위 4개 완성 -> 각각 적대적 검증(재현, 데이터 누수, 기존 파이프라인 무손상, ponytail 위반) -> blind6 를 사용자에게 라벨 요청 -> 커밋은 파일을 지정해서(`git commit -a` 금지: 스테이징된 삭제 60개와 무관한 수정이 같이 들어감). 코드 수정은 ponytail 스킬 규칙으로.
+수치는 모두 blind5 24개(라이브 8, 스트리머 7명) 기준이며 임계값이 같은 표본으로 정해져 낙관적이다. 독립 검증은 blind6 라벨이 필요하다.
+- 평가 하네스 `labels.py`, `eval_blind.py`: `python eval_blind.py blind5`. 현재 route 기준 auto 3/3 정밀도(리코 한 명뿐이라 스트리머 단위 분할에서는 일반화 근거 없음), review 5/21, auto+review 재현율 8/8. 경계: 시작 +-2초 적중 5/7, 끝 4/7, 끝이 일찍 잘림 2/7. 새 라벨은 `labels.py` 의 add 로 추가.
+- 다중 참조 장면 `scene_multi.py`, `scene_new.py`, route.py 연결: 스트리머 단위 분할에서 오탐 15개 중 14개를 drop(같이보기 11, 대기 화면 3), 오탐이 live 로 통과 0건, 라이브 7개 중 5개 재현(2개 review). live 판정이어도 auto 금지(review 만). 임계값(5.0, 0.10, 40.0)은 22개 표본에서 정한 값이고 motion 이 가장 불안하다. 같이보기 V24 는 못 거름.
+- 경계 `snap.py`(`python snap.py evaltable`, `selftest`): 끝 음악 절벽을 뒤 15초까지 찾아 늘리고 무음 지점으로 스냅. 끝 오차 최대 11.9초 -> 1.2초, 7개 모두 +-2초 이내. 같은 7개로 정하고 평가해 독립 검증 아님. 시작이 3~4초 이른 V11/V16(MR 인트로)은 그대로. V21 앞 연습 제거(trim_front)는 시험만, 끝 +55초는 미해결. 아직 파이프라인(detect/refine 다음)에 연결하지 않음.
+- 신규 표본: 토아 10-24 싱크룸 + 6방송(3.7GB)을 data/exp10 -> exp10r -> exp10s 로 처리, 검토 클립 `data/blind6`(30개, key.json, review.csv, README.txt). 토아 14개는 장면 기준이 1개뿐이라 전부 drop(싱크룸 화면이 달라서)이지만 과차단 확인용으로 일부러 포함. V05 V10 V29 는 방송 0초 부근이라 대기 화면 가능성. 랑 10-19 는 6시간에 탐지 0개(미탐 미확인). 제목에 (w./같이/합방 인 방송은 없었음. `detect.py` vocal_ratio 에 파일 끝 넘는 후보를 막는 1줄 수정.
+
+### 다음
+1. 사용자가 data/blind6/review.csv 라벨 -> `python eval_blind.py blind6` 로 독립 평가(특히 snap, scene_multi 임계값 검증, 토아 싱크룸 drop 이 과차단인지).
+2. 결과로 snap.py 를 detect/refine 흐름에 연결, scene_multi 기준 풀을 승인 클립으로 확장.
+3. 남은 로드맵: 가수 프로필 게이트(다인 곡), 연습/중도 포기/1절 판별, 시작 경계 MR 인트로.
