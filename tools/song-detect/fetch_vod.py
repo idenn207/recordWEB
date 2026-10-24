@@ -1,14 +1,14 @@
 """치지직 다시보기(공개)의 오디오 전용 스트림(128kbps m4a)을 Range 요청으로 받아 data/vod/<videoNo>.wav (16kHz mono) 로 만든다.
-네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 0.6MB/s ~ 5Mbps, 연결 2개). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
+네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 7MB/s ~ 56Mbps, 연결 4개). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
 64kbps 인 144p 영상의 오디오로는 탐지 결과가 달라져서(후보 12 -> 13) 오디오 전용 스트림을 쓴다.
-사용: python fetch_vod.py <videoNo> [속도 MB/s=0.6] [연결수=2]"""
+사용: python fetch_vod.py <videoNo> [속도 MB/s=7] [연결수=4]"""
 import json, re, subprocess, sys, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 vid = sys.argv[1]
-RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else 0.6e6      # 바이트/초, 모든 연결의 합
-n = int(sys.argv[3]) if len(sys.argv) > 3 else 2
+RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else 7e6      # 바이트/초, 모든 연결의 합
+n = int(sys.argv[3]) if len(sys.argv) > 3 else 4
 UA = {"User-Agent": "Mozilla/5.0"}
 D = Path("data/vod")
 D.mkdir(parents=True, exist_ok=True)
@@ -25,7 +25,7 @@ _lock, _next = threading.Lock(), [0.0]
 
 
 def throttle(nbytes):
-    """모든 스레드가 공유하는 평균 속도 제한. 256KB 단위로 불러서 순간 몰림을 막는다."""
+    """모든 스레드가 공유하는 속도 제한. 읽기 *전에* 시간표를 예약해서(받고 나서 쉬면 조각마다 순간 최고 속도로 몰린다) 64KB 단위로 고르게 받는다."""
     with _lock:
         now = time.monotonic()
         wait = max(0.0, _next[0] - now)
@@ -39,10 +39,10 @@ def get(a, b):
             r = urllib.request.urlopen(urllib.request.Request(url, headers={**UA, "Range": f"bytes={a}-{b}"}), timeout=60)
             buf = bytearray()
             while True:
-                piece = r.read(256 << 10)
+                throttle(64 << 10)
+                piece = r.read(64 << 10)
                 if not piece:
                     return bytes(buf)
-                throttle(len(piece))
                 buf += piece
         except Exception:
             pass
