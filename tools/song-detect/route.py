@@ -3,11 +3,12 @@
   drop   : 오디오 게이트 실패(keep=False), 또는 장면 거리가 drop 임계 초과(같이 보기/영상 시청/콘서트 화면)
   review : 같은 채널 기준 프레임이 없음, 장면이 애매함, 길이가 1절/짧은 랩(90~125초)이거나 6분 근처, 장면 거리를 못 읽음
   auto   : 위에 해당하지 않음 (125~340초, 같은 채널 장면과 거의 같음)
-임계값 근거: 같은 채널 기준에서 확인된 라이브 <=0.07, 콘서트/따라 부르기/같이 보기 >=0.08 (마시로, 후야, 나나 3채널).
+임계값 근거: 블라인드 검토(2026-10-24)에서 auto 6개 중 대기 화면 3개가 장면 거리 0.010 이었고 진짜 라이브는 0.059~0.073 이라 0.03 미만은 review.
+기존 근거: 같은 채널 기준에서 확인된 라이브 <=0.07, 콘서트/따라 부르기/같이 보기 >=0.08 (마시로, 후야, 나나 3채널).
 사용: python route.py <segments.json 입력> <출력> [has_refs=1]"""
 import json, sys
 
-P = dict(scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
+P = dict(scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
 # shortcut: 임계값은 3개 채널에서 정함, 새 채널의 같은 채널 기준이 쌓이면 채널별 분포로 다시 보정
 
 
@@ -21,6 +22,8 @@ def tier(g, has_refs, p=P):
         return "review", "새 채널: 같은 채널 기준 프레임 없음"
     if d is None:
         return "review", "장면 거리를 읽지 못함"
+    if d < p["scene_idle"]:
+        return "review", f"정지 화면(대기 화면) 의심 {d:.3f}"
     if d > p["scene_ok"]:
         return "review", f"장면 애매 {d:.2f}"
     if g["len"] < p["len_lo"]:
