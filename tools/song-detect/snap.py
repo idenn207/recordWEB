@@ -1,9 +1,9 @@
-"""경계 후처리 (refine.py 와 별도): 구간 끝을 Music 점수가 끊기는 지점(절벽)으로, 시작을 앞쪽 무음 지점으로 맞춘다.
+"""경계 후처리 (refine.py 와 별도): 구간 끝을 Music 점수가 끊기는 지점(절벽)으로, 시작을 앞 10초 안의 마지막 무음/말 끊김 뒤 첫 소리 - 1초로 맞춘다(lead_start).
 - 끝: [끝-8초, 끝+15초] 에서 Music<0.25 가 1.5초 이상 이어지는 첫 지점. 없으면 그대로(연주가 이어지는 곡을 무한정 늘리지 않음).
   랩(Music 0.4~0.7 유지)이나 음악적 종료로 일찍 잘린 끝을 늘리고, 늦게 잡힌 끝은 당긴다.
-- 시작/끝 모두 사용자 규칙: 노래 쪽 경계에서 최대 2초 여유 안의 무음(에너지 낮고 Speech 낮은) 지점으로 스냅.
+- 끝은 사용자 규칙: 노래 쪽 경계에서 최대 2초 여유 안의 무음(에너지 낮고 Speech 낮은) 지점으로 스냅.
 사용: python snap.py <wav> <segments.json 입력> <출력>     (wav 옆 .scores.npy 필요: 열 = Singing, Speech, Music, 0.5초 간격)
-      python snap.py selftest"""
+      python snap.py selftest | evaltable (사용자 경계 표) | evalnana (나나 정답 위치)"""
 import json, sys
 import numpy as np
 
@@ -42,6 +42,50 @@ def quiet(pcm, a, ref_db, t0, t1):
     return ts[(db < ref_db - 25) & (sp < 0.3)]
 
 
+LOOK, GAP, HOLE, DROP, SPEECH, MU, LEAD = 10.0, 0.6, 0.5, 20, 0.7, 0.5, 1.0   # 탐색 범위(blind6 최대 늦음 10초), 끊김 최소 길이, 끊김 사이 메움(초), 무음 깊이(dB), 말 판정, 무음일 때 Music 상한, 여유(초)
+
+
+EXT_MU = 0.25   # 늘린 구간의 Singing+Music 평균 하한(blind6 정상 사례 0.30~0.41, 비음악 0.00~0.22 사례를 가르는 값, 표본 약 14개 근거)
+
+
+def _clean(m, val, n):
+    """m 에서 val 이 아닌 값이 n 개 미만 이어진 구간(양옆이 val 인 경우만, 또는 val=False 일 때 val 구간 자체)을 반대로 뒤집는다."""
+    m, i = m.copy(), 0
+    while i < len(m):
+        j = i
+        while j < len(m) and m[j] == m[i]:
+            j += 1
+        if m[i] != val and j - i < n and (not val or (i > 0 and j < len(m))):
+            m[i:j] = val
+        i = j
+    return m
+
+
+def lead_start(pcm, a, s, ref_db):
+    """시작이 늦게 잡힌 곡의 앞부분 복구: s 앞 LOOK 초에서 '끊김'(곡 중앙값보다 DROP dB 낮고 Music<MU 인 무음, 또는 Speech>=SPEECH 인 말)을 표시하고
+    HOLE 초 미만 틈은 메운다. s 에서 거슬러 올라가 처음 만나는 GAP 초 이상 끊김의 끝(= 노래 쪽 첫 소리) - LEAD 초를 시작으로 하되,
+    끊김 안의 마지막 말 소리 뒤보다 앞으로는 가지 않는다(말 중간 금지). 끊김이 없으면 s.
+    shortcut: 곡 중간의 GAP 초 넘는 쉼표(MR 정지)를 끊김으로 오인하면 그 뒤부터 시작할 수 있다(10개 표본에서는 없었음), 표본이 늘면 재점검."""
+    ts, db = rms_db(pcm, s - LOOK, s)
+    ix = [min(int(t / HOP), len(a) - 1) for t in ts]
+    spk = a[ix, 1] >= SPEECH
+    brk = ((db < ref_db - DROP) & (a[ix, 2] < MU)) | spk
+    n, h = round(GAP / FR), round(HOLE / FR)
+    brk = _clean(_clean(brk, True, h), False, n)        # 짧은 소리 틈 메우고(끊김 합침), 그 뒤 GAP 미만 끊김은 곡 속 쉼표로 보고 지움
+    i = len(ts)
+    while i > 0 and not brk[i - 1]:
+        i -= 1                                           # 뒤에서부터 소리가 이어진 구간
+    if i == 0 or i == len(ts):
+        return s                                         # 끊김 없음, 또는 s 가 이미 끊김 안(소리 직전)
+    i0 = i
+    while i0 > 0 and brk[i0 - 1]:
+        i0 -= 1                                          # [i0, i) 끊김 구간
+    lb = ts[i0] if not spk[i0:i].any() else ts[i0 + np.flatnonzero(spk[i0:i])[-1]] + FR
+    st = float(max(ts[i] - LEAD, lb))
+    seg = a[int(st / HOP):max(int(s / HOP), int(st / HOP) + 1)]
+    return st if (seg[:, 0] + seg[:, 2]).mean() >= EXT_MU else s      # 늘린 구간이 음악/노래가 아니면(말·잡음) 늘리지 않음
+
+
 def snap(pcm, a, s, e):
     _, db = rms_db(pcm, s, e)
     ref = float(np.median(db))
@@ -50,8 +94,7 @@ def snap(pcm, a, s, e):
     q = quiet(pcm, a, ref, e2 - 1, e2 + MARGIN)         # 끝: 음악 끝 앞 1초~뒤 2초 안에서 가장 이른 무음
     if len(q):
         e2 = float(q[0])
-    q = quiet(pcm, a, ref, s - MARGIN, s)               # 시작: 앞 2초 안의 마지막 무음(그 뒤부터 소리)
-    s2 = float(q[-1]) + FR if len(q) else s
+    s2 = lead_start(pcm, a, s, ref)                     # 시작: 앞 LOOK 초 안 마지막 끊김 뒤 첫 소리 - LEAD
     return s2, e2
 
 
@@ -86,20 +129,52 @@ def selftest():
 USER = dict(V11=(24, 245), V12=(20, 245), V13=(20, 230), V14=(20, 187), V15=(19, 256), V16=(23, 267), V22=(18, 150))  # blind5 사용자 경계(클립 내 상대초, 7개 표본)
 
 
+START6 = dict(V08=12, V15=15, V22=10)                    # blind6 사용자 시작(클립 내 상대초, 끝 라벨 없음, 3개 표본)
+
+
 def evaltable():
-    """blind5 라이브 7개의 사용자 경계 대비 전/후 오차표. 끝 오차가 +-2초 안(늦게 +2, 일찍 -2)인지 assert."""
-    k = json.load(open("data/blind5/key.json", encoding="utf8"))
-    for v, (a, b) in USER.items():
-        w = "data/vod/%s.wav" % k[v]["videoNo"]
-        s, e, c = k[v]["start"], k[v]["end"], k[v]["clip_start"]
-        s2, e2 = snap(pcm_of(w), np.load(w.replace(".wav", ".scores.npy")), s, e)
-        print(v, "전 시작%+.1f 끝%+.1f | 후 시작%+.1f 끝%+.1f" % (s - c - a, e - c - b, s2 - c - a, e2 - c - b))
-        assert -2 <= e2 - c - b <= 2, v      # shortcut: 시작 오차(V11 -4, V16 -3)는 신호로 못 잡아 assert 제외(MR 인트로 구간이라 무음/가창 단서 없음)
+    """사용자 경계 대비 전/후 오차표(blind5 라이브 7 + blind6 시작 3). 오차 = 탐지 - 사용자(초, 음수 = 이름, 양수 = 앞이 잘림).
+    assert: 끝 오차 +-2초(blind5), 시작 후 오차 <= +2 (앞이 잘리는 쪽)."""
+    for s, tab in (("blind5", {v: (a, b) for v, (a, b) in USER.items()}), ("blind6", {v: (a, None) for v, a in START6.items()})):
+        k = json.load(open("data/%s/key.json" % s, encoding="utf8"))
+        for v, (a, b) in tab.items():
+            w = "data/vod/%s.wav" % k[v]["videoNo"]
+            s0, e, c = k[v]["start"], k[v]["end"], k[v]["clip_start"]
+            s2, e2 = snap(pcm_of(w), np.load(w.replace(".wav", ".scores.npy")), s0, e)
+            ee = (" | 끝 전%+.1f 후%+.1f" % (e - c - b, e2 - c - b)) if b else ""
+            print(s, v, "시작 전%+.1f 후%+.1f" % (s0 - c - a, s2 - c - a) + ee)
+            assert s2 - c - a <= 2, (s, v)
+            if b:
+                assert -2 <= e2 - c - b <= 2, v
+
+
+def evalnana(d="data/exp7b"):
+    """나나 정답 위치(data/refs.json, 곡-탐지 일대일 18곡)에 대한 snap 전/후 시작/끝 오차. 시작 앞잘림(>2초)이 늘지 않는지 assert."""
+    ov = lambda a, b, c, d: max(0, min(b, d) - max(a, c))
+    refs = [r for r in json.load(open("data/refs.json", encoding="utf8")) if not r["title"].endswith("1절")]
+    R = []
+    for date in ("2026-10-06", "2026-10-16"):
+        w = "data/%s_나나.wav" % date
+        pcm, a = pcm_of(w), np.load(w.replace(".wav", ".scores.npy"))
+        S = [g for g in json.load(open("%s/%s_나나.segments.json" % (d, date), encoding="utf8")) if g["keep"]]
+        rs = [r for r in refs if r["date"] == date]
+        for r in rs:
+            c = [g for g in S if ov(g["start"], g["end"], r["start"], r["end"]) > 0.3 * r["dur"]]
+            if len(c) == 1 and sum(ov(c[0]["start"], c[0]["end"], q["start"], q["end"]) > 0.3 * q["dur"] for q in rs) == 1:
+                s2, e2 = snap(pcm, a, c[0]["start"], c[0]["end"])
+                R.append((c[0]["start"] - r["start"], s2 - r["start"], c[0]["end"] - r["end"], e2 - r["end"]))
+    R = np.array(R)
+    ok, late = (lambda x: int((abs(x) <= 2).sum())), (lambda x: int((x > 2).sum()))
+    print("나나 %d곡 전->후: 시작 +-2초 %d->%d, 앞잘림(>2) %d->%d | 끝 +-2초 %d->%d" % (len(R), ok(R[:, 0]), ok(R[:, 1]), late(R[:, 0]), late(R[:, 1]), ok(R[:, 2]), ok(R[:, 3])))
+    assert (R[:, 1] > 2).sum() <= (R[:, 0] > 2).sum()
 
 
 if __name__ == "__main__":
     if sys.argv[1] == "selftest":
         selftest()
+        sys.exit()
+    if sys.argv[1] == "evalnana":
+        evalnana()
         sys.exit()
     if sys.argv[1] == "evaltable":
         evaltable()

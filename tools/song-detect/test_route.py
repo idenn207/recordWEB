@@ -18,3 +18,10 @@ assert "다중" in tier(seg(multi="live"), False)[1] and tier(seg(multi="live"),
 assert tier(seg(multi="unknown"), False)[0] == "review"
 assert tier(seg(multi="live"), True)[0] == "auto"          # 기존 채널 기준 경로는 그대로
 print("ok")
+# 기준 풀 분할이 평가 대상을 새지 않는지 (scene_pool.excluder)
+from scene_pool import excluder
+M = [dict(id=i, videoNo=b, name=n, start=s) for i, b, n, s in [("a", 1, "x", 10), ("b", 1, "x", 20), ("c", 1, "x", 30), ("d", 2, "x", 5), ("e", 3, "y", 5)]]
+ids = lambda u, m: {o["id"] for o in M if excluder(u, m, M)(o)}
+assert ids("broadcast", M[1]) == {"d", "e"} and ids("streamer", M[1]) == {"e"} and ids("clip", M[1]) == {"a", "c", "d", "e"}
+assert ids("prev1", M[2]) == {"b", "d", "e"} and ids("prev1", M[0]) == {"d", "e"}   # 바로 앞 형제 1개만, 첫 클립은 형제 없음
+print("pool ok")
