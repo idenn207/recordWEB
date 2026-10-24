@@ -1,8 +1,8 @@
-"""검토 결과(정답)와 data/<날짜>.segments.json 을 비교한다. 사용: python evaluate.py [폴더=data]"""
+"""검토 결과(정답)와 cache/detect/<날짜>.segments.json 을 비교한다. 사용: python experiments/evaluate.py [폴더=cache/detect]"""
 import json, sys
 from pathlib import Path
 
-D = Path(sys.argv[1] if len(sys.argv) > 1 else "data")
+D = Path(sys.argv[1] if len(sys.argv) > 1 else "cache/detect")
 hms = lambda t: f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{int(t % 60):02d}"
 H = lambda h, m, s: h * 3600 + m * 60 + s
 # 사용자가 확인한 라이브 곡 (날짜 -> [(시작, 끝)]). 10-18 데뷔는 3곡 모두 라이브라고만 확인되어 KEEP 3개를 정답으로 본다.

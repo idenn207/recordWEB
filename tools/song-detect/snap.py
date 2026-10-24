@@ -2,10 +2,11 @@
 - 끝: [끝-8초, 끝+15초] 에서 Music<0.25 가 1.5초 이상 이어지는 첫 지점. 없으면 그대로(연주가 이어지는 곡을 무한정 늘리지 않음).
   랩(Music 0.4~0.7 유지)이나 음악적 종료로 일찍 잘린 끝을 늘리고, 늦게 잡힌 끝은 당긴다.
 - 끝은 사용자 규칙: 노래 쪽 경계에서 최대 2초 여유 안의 무음(에너지 낮고 Speech 낮은) 지점으로 스냅.
-사용: python snap.py <wav> <segments.json 입력> <출력>     (wav 옆 .scores.npy 필요: 열 = Singing, Speech, Music, 0.5초 간격)
+사용: python snap.py <wav> <segments.json 입력> <출력>     (cache/detect/<이름>.scores.npy 필요: 열 = Singing, Speech, Music, 0.5초 간격)
       python snap.py selftest | evaltable (사용자 경계 표) | evalnana (나나 정답 위치)"""
 import json, sys
 import numpy as np
+from paths import cache_of
 
 HOP, SR, FR = 0.5, 16000, 0.1            # 점수 간격 / 표본률 / 에너지 프레임(초)
 BACK, FWD, MARGIN = 8.0, 15.0, 2.0       # 끝 탐색 범위(앞/뒤), 무음 스냅 여유(초)
@@ -136,11 +137,11 @@ def evaltable():
     """사용자 경계 대비 전/후 오차표(blind5 라이브 7 + blind6 시작 3). 오차 = 탐지 - 사용자(초, 음수 = 이름, 양수 = 앞이 잘림).
     assert: 끝 오차 +-2초(blind5), 시작 후 오차 <= +2 (앞이 잘리는 쪽)."""
     for s, tab in (("blind5", {v: (a, b) for v, (a, b) in USER.items()}), ("blind6", {v: (a, None) for v, a in START6.items()})):
-        k = json.load(open("data/%s/key.json" % s, encoding="utf8"))
+        k = json.load(open("data/review/%s/key.json" % s, encoding="utf8"))
         for v, (a, b) in tab.items():
             w = "data/vod/%s.wav" % k[v]["videoNo"]
             s0, e, c = k[v]["start"], k[v]["end"], k[v]["clip_start"]
-            s2, e2 = snap(pcm_of(w), np.load(w.replace(".wav", ".scores.npy")), s0, e)
+            s2, e2 = snap(pcm_of(w), np.load(cache_of(w, ".scores.npy")), s0, e)
             ee = (" | 끝 전%+.1f 후%+.1f" % (e - c - b, e2 - c - b)) if b else ""
             print(s, v, "시작 전%+.1f 후%+.1f" % (s0 - c - a, s2 - c - a) + ee)
             assert s2 - c - a <= 2, (s, v)
@@ -148,14 +149,14 @@ def evaltable():
                 assert -2 <= e2 - c - b <= 2, v
 
 
-def evalnana(d="data/exp7b"):
+def evalnana(d="cache/exp7b"):
     """나나 정답 위치(data/refs.json, 곡-탐지 일대일 18곡)에 대한 snap 전/후 시작/끝 오차. 시작 앞잘림(>2초)이 늘지 않는지 assert."""
     ov = lambda a, b, c, d: max(0, min(b, d) - max(a, c))
     refs = [r for r in json.load(open("data/refs.json", encoding="utf8")) if not r["title"].endswith("1절")]
     R = []
     for date in ("2026-10-06", "2026-10-16"):
-        w = "data/%s_나나.wav" % date
-        pcm, a = pcm_of(w), np.load(w.replace(".wav", ".scores.npy"))
+        w = "data/vod/legacy/%s_나나.wav" % date
+        pcm, a = pcm_of(w), np.load(cache_of(w, ".scores.npy"))
         S = [g for g in json.load(open("%s/%s_나나.segments.json" % (d, date), encoding="utf8")) if g["keep"]]
         rs = [r for r in refs if r["date"] == date]
         for r in rs:
@@ -180,7 +181,7 @@ if __name__ == "__main__":
         evaltable()
         sys.exit()
     wav, seg_in, seg_out = sys.argv[1:4]
-    pcm, a = pcm_of(wav), np.load(wav.replace(".wav", ".scores.npy"))
+    pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
     segs = json.load(open(seg_in, encoding="utf8"))
     for g in segs:
         if g["keep"]:

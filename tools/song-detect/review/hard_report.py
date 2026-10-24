@@ -1,4 +1,4 @@
-"""어려운 표본 종류별 요약: data/exp11s(scene_hard.py 출력) + data/vods11.json -> 방송 종류(game/song/talk)별 route 등급, 의심 유형, 재생목록 약한 대응.
+"""어려운 표본 종류별 요약: cache/exp11s(scene_hard.py 출력) + data/vods11.json -> 방송 종류(game/song/talk)별 route 등급, 의심 유형, 재생목록 약한 대응.
 의심 유형(모두 휴리스틱, 정답 아님): 1절=길이<110초, 반복=같은 방송에서 길이가 +-6% 비슷한 다른 후보가 20분 안(연습/MR 반복), 게임화면=game 방송인데 multi=watch/idle(OST/리듬게임/게임 영상).
 약한 정답: 같은 (스트리머,날짜) 재생목록 클립과 길이 +-15% 일치. 일치 후보가 여럿이면(chance>1) 우연일 수 있다.
 uncertain: 신호가 충돌하는 후보(재생목록 길이 대응 + 장면 drop, 또는 game 방송 + 장면 live/review + 반복/1절 의심 + 음악 점수 높음) 상위 N개.
@@ -7,11 +7,11 @@ import json, sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-D = Path(sys.argv[1] if len(sys.argv) > 1 else "data/exp11s")
+D = Path(sys.argv[1] if len(sys.argv) > 1 else "cache/exp11s")
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 5
 V = {v["videoNo"]: v for v in json.load(open("data/vods11.json", encoding="utf8"))}
 LAB = json.load(open("data/labels.json", encoding="utf8"))   # 사용자 라벨(blind5/6): 같은 VOD, 시작 5초 이내면 같은 후보로 본다
-UL = [(k["videoNo"], k["start"], "live" if LAB[b][i]["live"] else LAB[b][i]["tag"]) for b in ("blind5", "blind6") for i, k in json.load(open(f"data/{b}/key.json", encoding="utf8")).items()]
+UL = [(k["videoNo"], k["start"], "live" if LAB[b][i]["live"] else LAB[b][i]["tag"]) for b in ("blind5", "blind6") for i, k in json.load(open(f"data/review/{b}/key.json", encoding="utf8")).items()]
 rows = []
 for f in sorted(D.glob("*.segments.json")):
     v = V[int(f.name.split(".")[0])]

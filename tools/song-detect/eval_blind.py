@@ -1,5 +1,5 @@
 """블라인드 세트 평가: route 등급별 정밀도/재현율(Wilson 95%), 스트리머 단위 leave-one-streamer-out, 경계 오차.
-세트 폴더 data/<세트>/key.json 이 있어야 하고 라벨은 data/labels.json (labels.py).
+세트 폴더 data/review/<세트>/key.json 이 있어야 하고 라벨은 data/labels.json (labels.py).
 등급은 key.json 의 저장값이 아니라 현재 route.tier 로 다시 계산한다(has_refs 는 tier_why 의 '새 채널' 여부로 복원).
 LOSO: scene_idle 임계값을 한 스트리머를 뺀 나머지로 고르고(auto 오탐 최소 -> auto 라이브 최대) 뺀 스트리머에 적용.
 사용: python eval_blind.py [세트 ...]   (기본: labels.json 의 모든 세트)"""
@@ -27,7 +27,7 @@ def fmt(k, n):
 def rows(sets):
     R = []
     for s in sets:
-        key = json.load(open(f"data/{s}/key.json", encoding="utf8"))
+        key = json.load(open(f"data/review/{s}/key.json", encoding="utf8"))
         for v, l in load()[s].items():
             g = dict(key[v], keep=True)
             R.append(dict(id=f"{s}/{v}", name=key[v]["name"], g=g, has_refs="새 채널" not in key[v]["tier_why"], **l))

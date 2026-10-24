@@ -11,13 +11,15 @@
 - 곡 길이: 하한 90초, 상한 6분(보통 5분 이내). 1절만 부른 곡(약 90~110초)은 클립 대상이 아니지만 짧은 랩(72~98초)은 정상 클립이라 길이만으로 구분할 수 없다.
 - 듀엣/싱크룸/(w.)/같이 부르는 곡은 정당한 클립이다(예외).
 
-## 2. 구현된 것 (tools/song-detect/, 커밋 9개)
+## 2. 구현된 것 (tools/song-detect/, 폴더 구조는 12번 참고)
+
+핵심 파이프라인(detect, refine, finalize, snap, scene*, route, practice, singer, vod, labels, eval_blind, test_*, Dockerfile, `paths.py`)은 이 폴더 바로 아래, 보조 스크립트는 `datasets/`(수집·색인·일괄 실행), `review/`(블라인드 검토 클립·보고), `experiments/`(평가·실험)에 있다. 하위 폴더 스크립트는 상위 폴더를 sys.path 에 넣어 core 를 import 하며, 항상 cwd = tools/song-detect 에서 실행한다. 아래 표의 파일명은 위 구분대로 폴더를 붙여 읽는다. `paths.py`: DATA(`data/`)와 CACHE(`cache/`) 상수와 `cache_of(wav, ext)`(탐지 중간 결과 위치 `cache/detect/<이름><ext>`).
 
 파이프라인 순서: `detect.py` -> `refine.py` -> `scene.py`/`scene_dataset.py` -> `route.py`
 
 | 파일 | 역할 |
 |---|---|
-| `detect.py` | 1단계 YAMNet(0.5초 간격 Speech/Music) 후보 -> 2단계 Demucs 보컬 스템 비율(5초 창) -> 노래창 -> 구간. 말소리가 낀 15초 이상 비노래 블록에서 곡 분리, 90~360초, Music 연속 구간으로 경계 확장, 겹치는 조각 병합. GPU가 있으면 GPU, 없으면 CPU 프로세스 풀(후보 단위 병렬). 중간 결과 캐시(`.scores.npy`, `.vocal.json`) |
+| `detect.py` | 1단계 YAMNet(0.5초 간격 Speech/Music) 후보 -> 2단계 Demucs 보컬 스템 비율(5초 창) -> 노래창 -> 구간. 말소리가 낀 15초 이상 비노래 블록에서 곡 분리, 90~360초, Music 연속 구간으로 경계 확장, 겹치는 조각 병합. GPU가 있으면 GPU, 없으면 CPU 프로세스 풀(후보 단위 병렬). 중간 결과 캐시(`cache/detect/<이름>.scores.npy`, `.vocal.json`) |
 | `refine.py` | 경계 재분석: 시작/끝 주변을 0.1초 간격 YAMNet으로 다시 돌려 Music이 가장 가파르게 오르내리는 지점으로 보정(bias_start=0.3, bias_end=1.6) |
 | `scene.py` | 장면 게이트: 키프레임 48x27 회색 썸네일을 라이브 장면 기준 프레임과 비교(거리). 읽기 실패 시 빈 배열(= 통과시키지 않음) |
 | `route.py` | 3단계 라우팅 auto/review/drop. 임계값 scene_ok 0.075, scene_drop 0.18, 길이 125~340초. `test_route.py` 통과 |
@@ -31,12 +33,12 @@
 ### 실행 방법
 
 ```
-# 탐지 (GPU): vocal_thr=0.2 로 고정한 설정
-docker run --rm --gpus all -v "$PWD/data:/work/data" -v "$PWD/detect.py:/work/detect.py" song-detect-gpu data/vod/<번호>.wav vocal_thr=0.2 --out=data/exp8/<번호>.segments.json
+# 탐지 (GPU): vocal_thr=0.2 로 고정한 설정. data 와 cache 를 둘 다 마운트하고 paths.py 도 마운트한다(이미지를 다시 빌드하지 않을 때)
+docker run --rm --gpus all -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/paths.py:/work/paths.py" -v "$PWD/detect.py:/work/detect.py" song-detect-gpu data/vod/<번호>.wav vocal_thr=0.2 --out=cache/exp8/<번호>.segments.json
 # 경계 재분석 -> 장면/라우팅 -> 평가 -> 검토 클립
-python scene_dataset.py data/exp8r data/exp9 ; python dataset_eval.py data/exp9 ; python blind_vod.py data/exp9 data/blind5
+python scene_dataset.py cache/exp8r cache/exp9 ; python experiments/dataset_eval.py cache/exp9 ; python review/blind_vod.py cache/exp9 data/review/blind5
 # 테스트
-python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" song-detect test_detect.py
+python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" -v "$PWD/paths.py:/work/paths.py" song-detect test_detect.py
 ```
 주의: 프로세스를 끌 때 명령줄 패턴이 자기 셸을 매칭하지 않게 한다(과거에 셸이 종료됨). 대량 다운로드는 `fetch_vod.py`의 속도 상한과 낮은 우선순위를 유지한다(메모리 `feedback_bulk_download_network_etiquette.md`).
 
@@ -49,11 +51,12 @@ python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.
 - 성능: YAMNet 1시간 8초. 병목은 Demucs. GPU(RTX 4070 Ti)는 CPU 병렬 대비 약 11배, KEEP 결과 동일.
 - 다시보기 데이터셋: 25방송(149시간) 중 24방송 수집(시부키 10-18 8.5시간은 401 인증 필요로 제외). 오디오 단독 기준선은 재생목록 클립 44개 중 32개 대응, 탐지 102개.
 
-## 4. 데이터 위치 (모두 .gitignore, 용량 34GB)
+## 4. 데이터 위치 (모두 .gitignore, data 약 42GB + cache 약 0.6GB)
 
-- `data/vod/<videoNo>.wav`(16kHz mono 오디오), `data/vods.json`(스트리머/날짜/클립 길이 색인), `data/playlist2.json`(스텔라이브 라이브 클립 재생목록 메타)
-- `data/exp8`(탐지), `exp8r`(경계 재분석 후), `exp9`(장면+라우팅), `data/blind5`(검토 대기 클립 24개와 `review.csv`)
-- 나나 정답: `data/refs.json`(클립 위치), 블라인드 `data/blind2`~`blind4`(검토 완료)
+- `data/` = 원본, 정답, 라벨만. `data/vod/<videoNo>.wav`(16kHz mono 오디오), `data/vod/legacy/`(NAS 녹화본과 구버전 수집분, 12번), `data/samples/user/`(사용자가 자른 정답 클립), `data/samples/clips/`, `data/review/blind*/`(블라인드 검토 세트: mp4, review.csv, key.json), `data/vods*.json`(스트리머/날짜/클립 길이 색인), `data/playlist*.json`, `data/refs*.json`(나나 정답 위치 등), `data/labels.json`, `data/vod_*.txt`
+- `cache/` = 다시 만들 수 있는 것 전부. `cache/detect/<이름>.{scores.npy,vocal.json,segments.json}`(탐지 중간 결과), `cache/exp8`(탐지), `exp8r`(경계 재분석 후), `exp9`(장면+라우팅), `exp10/10r/10s`, `exp11/11r/11s/11f`, `exp_singer`, `scene_pool.npz/json`, `blind5_kf.npz`, `frames`, `.torch`(TORCH_HOME), `logs/`, `_tmp_check/`
+- 나나 정답: `data/refs.json`(클립 위치), 블라인드 `data/review/blind2`~`blind4`(검토 완료), 검토 대기 클립 `data/review/blind5`(24개와 `review.csv`)
+- 원본 영상은 치지직에서 날짜/제목으로 다시 받을 수 있다(`datasets/fetch_vod.py`).
 
 ## 5. 알려진 한계와 미해결 문제
 
@@ -133,3 +136,48 @@ python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.
 - 가수 프로필 `singer.py`(ECAPA): 엄격 분할 AUC 0.50 = 효과 없음. route 연결 금지.
 - 어려운 표본 `mk_vods11.py`, `run_hard.sh`, `scene_hard.py`, `hard_report.py`: 게임 방송 6개 추가 수집(exp11/exp11r/exp11s). 힙합 랩 41~72초는 90초 하한 때문에 구조적 미탐(재생목록 우사기 랩 3개). 스타크래프트 9개는 전부 watch/대기시간으로 drop(OST 의심). 리듬게임/OST 신규 표본은 없음. 마시로 마크 방송은 정답 16/16 후보 확보(전부 review, 채널 기준 없음 -> auto 불가).
 - 다음: (1) 사용자 검수 7건(data/blind7/ASK.md)의 답으로 auto 임계 0.075, 포기/연습 규칙, 경계 가드 방향 결정 (2) 랩 하한(90초) 완화 검토 (3) finalize 를 일괄 실행 스크립트(run_dataset.sh)에 편입.
+
+## 12. 폴더 정리 (2026-10-25) - 이전 경로 -> 새 경로
+
+삭제 없이 이동만 했다. 이동 전후 data 파일 수 844개, 45,615,890,636바이트로 일치(같은 드라이브 rename). 코드는 `git mv`(커밋 전 상태).
+
+코드:
+
+| 이전 | 새 위치 |
+|---|---|
+| fetch_vod, vod_index, fetch_audio, mk_vods10, mk_vods11, run_all/run_dataset/run_hard/run_new.sh | `datasets/` |
+| blind, blind_new, blind_vod, cut_clips, rename_blind, hard_report | `review/` |
+| hum, evaluate, evaluate_refs, locate_refs, boundary_stats, dataset_eval | `experiments/` |
+| (신규) | `paths.py` (DATA, CACHE, cache_of) |
+
+데이터:
+
+| 이전 | 새 위치 |
+|---|---|
+| `data/_samples/`, `data/clips/` | `data/samples/user/`, `data/samples/clips/` |
+| `data/blind`, `blind2`~`blind7` | `data/review/blind*` |
+| `data/20*.wav` (12개), `data/_vod/*` | `data/vod/legacy/` |
+| `data/20*.{scores.npy,vocal.json,segments.json}`, `data/vod/*.{scores.npy,vocal.json}` | `cache/detect/` |
+| `data/exp*`, `exp_singer`, `frames`, `ref`, `v1`, `_singer_probe`, `.torch`, `.ecapa` | `cache/` 같은 이름 |
+| `data/scene_pool.npz/json`, `data/blind5/_kf.npz` | `cache/scene_pool.*`, `cache/blind5_kf.npz` |
+| `data/*.log`, `exp11s_report.txt` | `cache/logs/` |
+| `data/vods*.json`, `playlist*.json`, `refs*.json`, `labels.json`, `vod_*.txt` | 그대로 `data/` |
+
+코드 쪽 변경: detect.py 캐시와 기본 출력은 `cache_of`, 장면 기준 풀과 키프레임은 `cache/`, 세트 폴더는 `data/review/<세트>`, 도커는 `-v data -v cache -v paths.py` 마운트와 `TORCH_HOME=/work/cache/.torch`. 명령줄 인자로 받는 segments 폴더(`exp8r` 등)는 이제 `cache/exp8r` 처럼 쓴다. 검증: `test_route.py`, `snap.py selftest`, `finalize.py selftest`, `eval_blind.py blind5 blind6`(경계 5/7, 4/7, 2/7 등 9번과 동일), GPU 도커 detect.py 캐시 히트(결과가 cache/exp8 과 동일)와 캐시 미스(cache/detect 에 생성).
+
+### 중복 후보 (사용자가 지울지 결정, 지우지 않았음)
+`data/vod/legacy/` 의 NAS 녹화 wav 와 `data/vod/` 의 다시보기 wav 를 Music 점수 시계열 상관(시작 오프셋 탐색)으로 대조했다.
+
+| legacy 파일 | 크기(B) | 중복 대상 | 상관 / 오프셋 |
+|---|---|---|---|
+| 2026-10-17_랑.wav | 113,285,198 | vod/15724523.wav | 0.93 / -4초 |
+| 2026-10-17_토아.wav | 107,554,894 | vod/15723636.wav | 0.93 / -29초 |
+| 2026-10-18.wav | 101,051,128 | vod/15741625.wav | 0.81 / -87초 |
+| 2026-10-18_어비스.wav | 110,766,158 | vod/15740846.wav | 0.89 / -83초 |
+| 2026-10-19_후야.wav | 170,455,150 | vod/15761307.wav | 1.00 / 0 (크기 거의 동일) |
+| 2026-10-20.wav | 1,128,388,686 | vod/15779422.wav | 0.94 / -50초 |
+| 2026-10-23.wav | 621,275,214 | vod/15821901.wav | 0.90 / -46초 |
+| 2026-10-23_마시로.wav | 658,602,788 | vod/15827672.wav | 1.00 / 0 (크기 거의 동일) |
+
+wav 8개 합계 2.80GiB. 오프셋이 있는 6개는 같은 방송이지만 시작 시각이 달라 파일이 같지는 않다(나중 `finalize`/`snap` 입력은 vod 쪽 기준). 영상 `vod/legacy/2026-10-19_후야.mp4`, `2026-10-23_마시로.mp4`(합계 9.65GiB)는 위 후야/마시로 방송의 영상본이며 `scene.py` 의 로컬 장면 입력이라 중복이어도 당장은 필요하다. `15761307.json/.mpd`, `15827672.json/.mpd` 는 그 영상의 다운로드 메타.
+중복이 아닌 legacy wav(vod 에 대응 없음): 2026-10-06_나나, 2026-10-16_나나(나나 정답 21곡의 원본이라 보존 필요), 2026-10-19, 2026-10-21.

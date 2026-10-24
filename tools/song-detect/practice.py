@@ -1,6 +1,6 @@
 """연습/사운드체크 신호 (route 와 별도 모듈, 오디오만 사용). 오탐을 줄이는 쪽이라 의심되면 review 로만 보내고 drop 은 하지 않는다.
 rep_near: 구간 첫 12초 크로마 창(평균 제거 코사인)이 구간 밖 +-150초에서 얼마나 닮은 곳이 있는가 = 같은 MR 시작이 근처에서 반복됨.
-측정 결과(2026-10-24, data/exp11): 끝 음량/페이드/보컬 지속 같은 완주 신호는 중도 포기 2건과 라이브 85건이 겹쳐 쓰지 않음(HANDOFF 11번).
+측정 결과(2026-10-24, cache/exp11): 끝 음량/페이드/보컬 지속 같은 완주 신호는 중도 포기 2건과 라이브 85건이 겹쳐 쓰지 않음(HANDOFF 11번).
 사용: python practice.py feats <in.json [[라벨,wav,시작,끝]..]> <out.json>   (도커 song-detect 안에서, librosa 필요)
       python practice.py table <feat.json>   |   python practice.py selftest"""
 import json, sys

@@ -1,7 +1,7 @@
-"""정답 클립 위치(data/refs.json)와 탐지 결과를 비교한다. 사용: python evaluate_refs.py [segments 폴더=data/exp]"""
+"""정답 클립 위치(data/refs.json)와 탐지 결과를 비교한다. 사용: python evaluate_refs.py [segments 폴더=cache/exp]"""
 import json, sys
 from pathlib import Path
-D = Path(sys.argv[1] if len(sys.argv) > 1 else "data/exp")
+D = Path(sys.argv[1] if len(sys.argv) > 1 else "cache/exp")
 refs = [r for r in json.load(open("data/refs.json", encoding="utf8")) if not r["title"].endswith("1절")]  # 1절만 부른 곡은 클립 대상 아님(사용자 확인)
 hms = lambda t: f"{int(t // 3600)}:{int(t % 3600 // 60):02d}:{int(t % 60):02d}"
 ov = lambda a, b, c, d: max(0, min(b, d) - max(a, c))

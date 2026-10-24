@@ -4,6 +4,7 @@
 import csv, json, random, subprocess, sys
 from collections import defaultdict
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 핵심 모듈(scene, vod...)은 상위 폴더
 from vod import url144
 
 IN, OUT = Path(sys.argv[1]), Path(sys.argv[2])

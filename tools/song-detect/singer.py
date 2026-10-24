@@ -2,14 +2,14 @@
 낮으면 '타인 음원/다인 의심'(suspect). suspect 는 drop 이 아니라 review 로만 보낸다(듀엣/싱크룸/(w.)은 낮은 게 정상).
 프로필 = 같은 스트리머의 다른 방송(videoNo/date)의 라이브 구간 임베딩 평균(같은 방송은 제외: 마이크/믹스 누수 방지).
 표본: blind5+blind6 라벨(labels.json)과 나나 정답(refs.json, 1절 제외; 탐지 KEEP 중 정답/EXTRA 밖은 오탐으로 봄).
-사용(도커 GPU, 스템/임베딩은 data/exp_singer 에 캐시):
-  docker run --rm --gpus all -e TORCH_HOME=/work/data/.torch -v "$PWD/data:/work/data" -v "$PWD/singer.py:/work/singer.py" --entrypoint python song-detect-gpu singer.py build
+사용(도커 GPU, 스템/임베딩은 cache/exp_singer 에 캐시):
+  docker run --rm --gpus all -e TORCH_HOME=/work/cache/.torch -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/singer.py:/work/singer.py" --entrypoint python song-detect-gpu singer.py build
   python singer.py eval      (캐시만 읽음, numpy 만 필요)     python singer.py selftest"""
 import json, sys
 from pathlib import Path
 import numpy as np
 
-SR, OUT = 16000, Path("data/exp_singer")
+SR, OUT = 16000, Path("cache/exp_singer")
 WIN = 6        # 초, 임베딩 창(창 길이=hop)
 P = dict(suspect=0.5)  # shortcut: 엄격 분할 AUC 0.50(기회 수준)이라 이 임계값은 효과 없음, route 에 연결하지 말 것. 다른 임베딩/학습(가수 식별 모델)을 쓸 때 재측정
 H = lambda h, m: h * 3600 + m * 60
@@ -20,7 +20,7 @@ def items():
     L = json.load(open("data/labels.json", encoding="utf8"))
     I = []
     for s in ("blind5", "blind6"):
-        key = json.load(open(f"data/{s}/key.json", encoding="utf8"))
+        key = json.load(open(f"data/review/{s}/key.json", encoding="utf8"))
         for v, k in key.items():
             I.append(dict(id=f"{s}/{v}", name=k["name"], bc=str(k["videoNo"]), wav=f"data/vod/{k['videoNo']}.wav", start=k["start"], end=k["end"],
                           live=L[s][v]["live"], tag=L[s][v]["tag"] or "live", set=s))
@@ -28,14 +28,14 @@ def items():
     refs = json.load(open("data/refs.json", encoding="utf8"))
     for d in ("2026-10-06", "2026-10-16"):
         R = [r for r in refs if r["date"] == d]
-        S = [g for g in json.load(open(f"data/{d}_나나.segments.json", encoding="utf8")) if g["keep"]]
+        S = [g for g in json.load(open(f"cache/detect/{d}_나나.segments.json", encoding="utf8")) if g["keep"]]
         for i, r in enumerate(R):
             if not r["title"].endswith("1절"):
-                I.append(dict(id=f"nana/{d}/R{i}", name="나나", bc=d, wav=f"data/{d}_나나.wav", start=r["start"], end=r["end"], live=True, tag="live", set="nana"))
+                I.append(dict(id=f"nana/{d}/R{i}", name="나나", bc=d, wav=f"data/vod/legacy/{d}_나나.wav", start=r["start"], end=r["end"], live=True, tag="live", set="nana"))
         for i, g in enumerate(S):
             if any(ov(g["start"], g["end"], r["start"], r["end"]) > 0.3 * r["dur"] for r in R) or any(ov(g["start"], g["end"], a, b) > 0.5 * g["len"] for a, b in EXTRA.get(d, [])):
                 continue
-            I.append(dict(id=f"nana/{d}/F{i}", name="나나", bc=d, wav=f"data/{d}_나나.wav", start=g["start"], end=g["end"], live=False, tag="nana_fp", set="nana"))
+            I.append(dict(id=f"nana/{d}/F{i}", name="나나", bc=d, wav=f"data/vod/legacy/{d}_나나.wav", start=g["start"], end=g["end"], live=False, tag="nana_fp", set="nana"))
     return I
 
 
@@ -91,7 +91,7 @@ def build():
     from demucs.pretrained import get_model
     from speechbrain.inference.speaker import EncoderClassifier
     models = dict(demucs=get_model("htdemucs").eval().to("cuda"),
-                  ecapa=EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb", savedir="data/.torch/ecapa", run_opts={"device": "cuda:0"}))
+                  ecapa=EncoderClassifier.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb", savedir="cache/.torch/ecapa", run_opts={"device": "cuda:0"}))
     I = items()
     for k, it in enumerate(I):
         embed(it, models)

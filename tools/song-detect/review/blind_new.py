@@ -1,9 +1,10 @@
 """신규 표본(data/vods10.json)의 검토용 블라인드 클립 최대 30개. blind_vod.py 와 같은 파일명/review.csv/key.json 형식 + key 에 title, collab 추가.
 선택: auto 전부 -> 토아 싱크룸(다인 곡 자료) 최대 10개 -> 나머지 review 를 방송별 라운드로빈. drop(장면/오디오 게이트 탈락)은 뽑지 않는다(싱크룸 제외).
-사용: python blind_new.py <segments 폴더(exp10s)> <출력 폴더(data/blind6)> [최대=30] [패딩초=20]"""
+사용: python blind_new.py <segments 폴더(cache/exp10s)> <출력 폴더(data/review/blind6)> [최대=30] [패딩초=20]"""
 import csv, json, random, subprocess, sys
 from collections import defaultdict
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # 핵심 모듈(scene, vod...)은 상위 폴더
 from vod import url144
 
 IN, OUT = Path(sys.argv[1]), Path(sys.argv[2])

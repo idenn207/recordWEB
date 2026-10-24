@@ -12,7 +12,7 @@ from scene_multi import classify, pools, feats
 APPROVED = {"V11": (24, 245), "V12": (20, 245), "V13": (20, 230), "V14": (20, 187), "V15": (19, 256), "V16": (23, 267), "V21": (97, 313), "V22": (18, 150)}
 OUT = Path(sys.argv[1])
 OUT.mkdir(parents=True, exist_ok=True)
-key = json.load(open("data/blind5/key.json", encoding="utf8"))
+key = json.load(open("data/review/blind5/key.json", encoding="utf8"))
 by_name = {}
 for b, (a, e) in APPROVED.items():
     k = key[b]
@@ -20,10 +20,10 @@ for b, (a, e) in APPROVED.items():
     if len(f):
         by_name.setdefault(k["name"], []).append(f[np.linspace(0, len(f) - 1, min(60, len(f))).astype(int)])
 refs = {n: np.concatenate(r) for n, r in by_name.items()}
-KF = dict(np.load("data/blind5/_kf.npz"))
+KF = dict(np.load("cache/blind5_kf.npz"))
 LIVEP, NEGP = pools(KF, {v: "live" if v in APPROVED else "neg" for v in KF}, {v: "" for v in KF}, None)
 for v in json.load(open("data/vods11.json", encoding="utf8")):
-    f = next((Path(f"data/{d}/{v['videoNo']}.segments.json") for d in ("exp11r", "exp10r", "exp8r") if Path(f"data/{d}/{v['videoNo']}.segments.json").exists()), None)
+    f = next((Path(f"cache/{d}/{v['videoNo']}.segments.json") for d in ("exp11r", "exp10r", "exp8r") if Path(f"cache/{d}/{v['videoNo']}.segments.json").exists()), None)
     if f is None or (OUT / f"{v['videoNo']}.segments.json").exists():   # 이미 처리한 방송은 건너뜀(지우고 다시 돌리면 재계산)
         continue
     R, out = refs.get(v["name"]), []

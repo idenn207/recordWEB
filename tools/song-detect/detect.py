@@ -3,12 +3,13 @@
 1단계 YAMNet: Music 높고 Speech 낮은 구간이 길게 이어지는 곳을 후보로 (싸다). 'Singing' 점수는 반주가
   크면 0.03 정도로 죽어서 쓰지 않는다.
 2단계 Demucs: 후보에서만 보컬 스템 에너지 비율을 본다. 순수 BGM/MR 사운드체크는 ~0, 노래는 0.7 안팎.
-사용: python detect.py <wav> [--force]   (중간 결과는 <wav>.scores.npy / .vocal.npy 로 캐시)"""
+사용: python detect.py <wav> [--force]   (중간 결과는 cache/detect/<이름>.scores.npy / .vocal.json 로 캐시)"""
 import csv, json, os, sys
 from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 from pathlib import Path
 import numpy as np
+from paths import cache_of
 from ai_edge_litert.interpreter import Interpreter
 
 HOP = 0.5          # 초, 점수 간격
@@ -24,7 +25,8 @@ MODELS = here / "models" if (here / "models").exists() else here
 
 
 def scores(wav: Path, force=False):
-    cache = wav.with_suffix(".scores.npy")
+    cache = cache_of(wav, ".scores.npy")
+    cache.parent.mkdir(parents=True, exist_ok=True)
     if cache.exists() and not force:
         return np.load(cache)
     names = [r[2] for r in csv.reader(open(MODELS / "yamnet_class_map.csv", encoding="utf8"))][1:]
@@ -167,7 +169,7 @@ def _vocal_job(a):
 
 def detect(wav: Path, force=False, p=P):
     a = scores(wav, force)
-    cache_f = wav.with_suffix(".vocal.json")
+    cache_f = cache_of(wav, ".vocal.json")
     cache = json.loads(cache_f.read_text()) if cache_f.exists() and not force else {}
     out, w = [], p["vocal_win_s"]
     cands = [(cs, ce, max(0.0, cs - p["pad_s"]), ce + p["pad_s"]) for cs, ce in candidates(a, p)]
@@ -214,11 +216,11 @@ def hms(t):
 
 if __name__ == "__main__":
     wav = Path(sys.argv[1])
-    # 파라미터 덮어쓰기: python detect.py <wav> vocal_thr=0.2 gap_s=10  (결과는 <wav>.segments.json 대신 --out= 으로 지정)
+    # 파라미터 덮어쓰기: python detect.py <wav> vocal_thr=0.2 gap_s=10  (결과는 기본 cache/detect/<이름>.segments.json, --out= 으로 지정 가능)
     over = {k: float(v) for k, v in (a.split("=") for a in sys.argv[2:] if "=" in a and not a.startswith("--"))}
     out_f = next((a[6:] for a in sys.argv if a.startswith("--out=")), None)
     segs = detect(wav, "--force" in sys.argv, {**P, **over})
     print(f"{wav.name}")
     for s in segs:
         print(f"  {'KEEP' if s['keep'] else 'drop'} {hms(s['start'])} - {hms(s['end'])}  len={s['len']:.0f}s cover={s['cover']} vocal={s['vocal']} speech={s['speech']} music={s['music']} {s['why']}")
-    (Path(out_f) if out_f else wav.with_suffix(".segments.json")).write_text(json.dumps(segs, ensure_ascii=False, indent=1))
+    (Path(out_f) if out_f else cache_of(wav, ".segments.json")).write_text(json.dumps(segs, ensure_ascii=False, indent=1))

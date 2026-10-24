@@ -1,9 +1,9 @@
-"""NAS 파일 API로 영상을 읽어 16kHz mono wav만 data/ 에 뽑는다 (프로토타입 전용, 읽기만 한다)."""
+"""NAS 파일 API로 영상을 읽어 16kHz mono wav만 data/vod/legacy/ 에 뽑는다 (프로토타입 전용, 읽기만 한다)."""
 import json, re, subprocess, sys, urllib.parse, urllib.request
 from pathlib import Path
 
 API = "http://192.168.0.10:5080/api/files"
-OUT = Path(__file__).parent / "data"
+OUT = Path("data/vod/legacy")
 q = lambda p: urllib.parse.quote(p, safe="")
 
 items = json.load(urllib.request.urlopen(f"{API}/ls?path={q('/app/chzzk')}"))["items"]

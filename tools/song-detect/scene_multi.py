@@ -4,7 +4,7 @@
   watch : 검은 띠가 큼(같이 보기 레이아웃) / 화면 전체가 크게 계속 움직임(영상 시청, 게임, 리듬게임)
   live  : 위에 해당하지 않고 live 풀이 neg 풀보다 가까움
   unknown: 그 외(neg 풀이 더 가까움 포함), 또는 live 풀이 비어 있음
-사용: python scene_multi.py  (data/blind5 의 승인/오탐 클립으로 방송 단위 leave-one-streamer-out 평가 후 assert)
+사용: python scene_multi.py  (data/review/blind5 의 승인/오탐 클립으로 방송 단위 leave-one-streamer-out 평가 후 assert)
 이 모듈은 scene.thumbs(48x27 키프레임 회색)를 그대로 쓴다."""
 import json, re, sys
 from pathlib import Path
@@ -52,15 +52,16 @@ def loso(clips, labels, who):
 
 
 if __name__ == "__main__":
-    d = Path("data/blind5")
+    d = Path("data/review/blind5")
+    KF = Path("cache/blind5_kf.npz")
     K = json.load(open(d / "key.json", encoding="utf8"))
     LIVE = "V11 V12 V13 V14 V15 V16 V22".split()
     REL = {"V13": (20, 230), "V12": (20, 245), "V14": (20, 187), "V15": (19, 256), "V16": (23, 267), "V22": (18, 150), "V11": (24, 245)}   # 사용자 시간(클립 내 상대초)
-    if not (d / "_kf.npz").exists():   # 키프레임 캐시. 오탐은 클립 앞 20초 패딩 뒤 탐지 길이만큼. V07/V21 mp4 는 moov 가 없어 읽히지 않아 제외
+    if not KF.exists():   # 키프레임 캐시. 오탐은 클립 앞 20초 패딩 뒤 탐지 길이만큼. V07/V21 mp4 는 moov 가 없어 읽히지 않아 제외
         import scene
-        np.savez(d / "_kf.npz", **{re.search(r"__(V\d+)", f.name).group(1): scene.thumbs(str(f), *REL.get(re.search(r"__(V\d+)", f.name).group(1), (20, 20 + K[re.search(r"__(V\d+)", f.name).group(1)]["len"])))
+        np.savez(KF, **{re.search(r"__(V\d+)", f.name).group(1): scene.thumbs(str(f), *REL.get(re.search(r"__(V\d+)", f.name).group(1), (20, 20 + K[re.search(r"__(V\d+)", f.name).group(1)]["len"])))
                                   for f in d.glob("*.mp4") if not re.search(r"__V(07|21)\.", f.name)})
-    F = dict(np.load(d / "_kf.npz"))
+    F = dict(np.load(KF))
     lab = {v: "live" if v in LIVE else "neg" for v in F}
     who = {v: K[v]["name"] for v in F}
     res = loso(F, lab, who)

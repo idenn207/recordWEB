@@ -11,7 +11,7 @@ q = lambda p: urllib.parse.quote(p, safe="")
 
 
 def url_of(date, who):
-    local = sorted(Path("data/_vod").glob(f"{date}_{who}.mp4"))      # 내려받은 다시보기가 있으면 그것을 쓴다
+    local = sorted(Path("data/vod/legacy").glob(f"{date}_{who}.mp4"))      # 내려받은 다시보기가 있으면 그것을 쓴다
     if local:
         return str(local[0])
     items = json.load(urllib.request.urlopen(f"{API}/ls?path={q('/app/chzzk')}"))["items"]

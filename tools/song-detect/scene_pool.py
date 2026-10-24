@@ -1,4 +1,4 @@
-"""승인(라이브)/오탐 클립의 키프레임 기준 풀 (데이터 파일 data/scene_pool.npz + scene_pool.json). 새 방송에서 재사용한다.
+"""승인(라이브)/오탐 클립의 키프레임 기준 풀 (캐시 파일 cache/scene_pool.npz + scene_pool.json). 새 방송에서 재사용한다.
 풀 항목 = 라벨된 검토 클립 하나: {set, id, name, videoNo, live} 와 48x27 키프레임. 클립의 탐지 구간만(앞뒤 20초 패딩 제외).
 사용: python scene_pool.py build            (blind5 + blind6 클립 mp4 에서 풀 생성/갱신, 읽히지 않는 클립은 건너뜀)
       python scene_pool.py eval [broadcast|streamer|clip|prev1]   (분할 방식별 route 등급 재평가, eval_blind 보고 함수 재사용)
@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 from labels import load
 
-NPZ, META = Path("data/scene_pool.npz"), Path("data/scene_pool.json")
+NPZ, META = Path("cache/scene_pool.npz"), Path("cache/scene_pool.json")
 SETS = ("blind5", "blind6")
 
 
@@ -19,8 +19,8 @@ def build():
     meta, fr = [], {}
     old = dict(np.load(NPZ)) if NPZ.exists() else {}
     for s in SETS:
-        key, lab = json.load(open(f"data/{s}/key.json", encoding="utf8")), load()[s]
-        for f in sorted(Path(f"data/{s}").glob("*.mp4")):
+        key, lab = json.load(open(f"data/review/{s}/key.json", encoding="utf8")), load()[s]
+        for f in sorted(Path(f"data/review/{s}").glob("*.mp4")):
             v = re.search(r"__(V\d+)", f.name).group(1)
             k, l = key[v], lab[v]
             a = k["start"] - k["clip_start"]
@@ -69,7 +69,7 @@ def evaluate(unit):
     import route, eval_blind
     from scene_multi import classify
     meta, F = pool()
-    keys = {s: json.load(open(f"data/{s}/key.json", encoding="utf8")) for s in SETS}
+    keys = {s: json.load(open(f"data/review/{s}/key.json", encoding="utf8")) for s in SETS}
     labs = load()
     R, out = [], []
     for s in SETS:                                      # 풀에 못 넣은 클립(대기 화면 오디오 등)도 54개 전체에 포함: 키프레임 없음 = 장면 못 읽음

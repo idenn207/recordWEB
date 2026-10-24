@@ -2,7 +2,7 @@
 import csv, json, sys
 from pathlib import Path
 
-D = Path(sys.argv[1] if len(sys.argv) > 1 else "data/blind2")
+D = Path(sys.argv[1] if len(sys.argv) > 1 else "data/review/blind2")
 K = json.loads((D / "key.json").read_text(encoding="utf8"))
 hm = lambda t: f"{int(t // 3600):02d}{int(t % 3600 // 60):02d}{int(t % 60):02d}"
 rows = []

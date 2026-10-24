@@ -1,4 +1,4 @@
-"""사용자가 자른 정답 클립(data/_samples/*.mp4)이 녹화 wav 의 어디인지 찾는다 (에너지 포락선 정규화 상호상관). 결과: data/refs.json"""
+"""사용자가 자른 정답 클립(data/samples/user/*.mp4)이 녹화 wav 의 어디인지 찾는다 (에너지 포락선 정규화 상호상관). 결과: data/refs.json"""
 import glob, json, re, subprocess
 import numpy as np
 
@@ -21,11 +21,11 @@ def ncc(rec, ref):
 
 recs = {}
 out = []
-for f in sorted(glob.glob("data/_samples/*.mp4")):
+for f in sorted(glob.glob("data/samples/user/*.mp4")):
     m = re.search(r"_(26\d{4})-(.+)_001_1080p", f)
     date = "2026-10-" + m.group(1)[4:]; title = m.group(2)
     if date not in recs:
-        p = f"data/{date}_나나.wav"; off = open(p, "rb").read(4096).find(b"data") + 8
+        p = f"data/vod/legacy/{date}_나나.wav"; off = open(p, "rb").read(4096).find(b"data") + 8
         recs[date] = env(np.memmap(p, dtype="<i2", mode="r", offset=off), FR)
     ref = load_ref(f); e = env(ref, FR)
     c = ncc(recs[date], e); i = int(c.argmax())

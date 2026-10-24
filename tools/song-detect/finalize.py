@@ -1,9 +1,10 @@
 """파이프라인 마지막 경계 단계 (detect -> refine -> finalize -> scene -> route): snap.snap 으로 start/end 를 최종 확정한다.
-입력 segments.json(wav 옆에 .scores.npy 필요), 출력 segments.json: keep 구간만 start/end 를 바꾸고 이전 값은 start1/end1 에 남긴다.
+입력 segments.json(cache/detect/<이름>.scores.npy 필요), 출력 segments.json: keep 구간만 start/end 를 바꾸고 이전 값은 start1/end1 에 남긴다.
 안전장치: 이미 처리한 구간(start1 있음)은 건너뜀(멱등), 결과가 파일 범위 밖이거나 끝<=시작이거나 길이가 원래의 절반 미만/2배 초과면 원래 경계 유지(why 에 기록).
 사용: python finalize.py <wav> <segments.json 입력> <출력>    /    python finalize.py selftest"""
 import json, sys
 import numpy as np
+from paths import cache_of
 from snap import pcm_of, snap
 
 
@@ -38,7 +39,7 @@ if __name__ == "__main__":
         selftest()
         sys.exit()
     wav, seg_in, seg_out = sys.argv[1:4]
-    pcm, a = pcm_of(wav), np.load(wav.replace(".wav", ".scores.npy"))
+    pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
     segs = [fix(pcm, a, g) for g in json.load(open(seg_in, encoding="utf8"))]
     json.dump(segs, open(seg_out, "w", encoding="utf8"), ensure_ascii=False, indent=1)
     print(sum("start1" in g for g in segs), "개 확정,", sum("why_snap" in g for g in segs), "개 원래 유지")

@@ -1,4 +1,4 @@
-"""신규 표본(data/vods10.json)의 장면 게이트 + 라우팅. scene_dataset.py 와 달리 기준 프레임을 '사용자가 라이브로 승인한 구간'(data/scene_pool.npz: blind5+blind6 라벨 클립)에서만 만든다
+"""신규 표본(data/vods10.json)의 장면 게이트 + 라우팅. scene_dataset.py 와 달리 기준 프레임을 '사용자가 라이브로 승인한 구간'(cache/scene_pool.npz: blind5+blind6 라벨 클립)에서만 만든다
 (재생목록 길이 짝짓기는 대기 화면이 섞여 오염됨 - HANDOFF 5번). 승인 구간이 없는 채널(히나 등)은 route.tier 가 review 로 보낸다.
 사용: python scene_new.py <입력 segments 폴더(exp10r)> <출력 폴더(exp10s)>"""
 import json, sys
@@ -13,7 +13,7 @@ from scene_multi import classify
 IN, OUT = Path(sys.argv[1]), Path(sys.argv[2])
 OUT.mkdir(parents=True, exist_ok=True)
 vods = json.load(open("data/vods10.json", encoding="utf8"))
-meta, F = scene_pool.pool()   # 기준 풀(data/scene_pool.npz): 승인 라이브 + 오탐 키프레임. 새 승인 클립은 `python scene_pool.py build` 로 추가
+meta, F = scene_pool.pool()   # 기준 풀(cache/scene_pool.npz): 승인 라이브 + 오탐 키프레임. 새 승인 클립은 `python scene_pool.py build` 로 추가
 LIVEP, NEGP = (scene_pool.cat(meta, F, lambda m: True)[g] for g in ("live", "neg"))
 refs = {n: scene_pool.cat(meta, F, lambda m, n=n: m["name"] == n)["live"] for n in {m["name"] for m in meta if m["live"]}}
 print({n: len(r) for n, r in refs.items()}, flush=True)
