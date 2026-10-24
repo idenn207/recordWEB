@@ -20,9 +20,13 @@ def url_of(date, who):
 
 
 def thumbs(url, s, e):
-    """[s,e) 초의 키프레임을 48x27 회색으로. 키프레임만 디코딩하므로 1080p60 도 수 초면 된다."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), "-i", url, "-an",
-                          "-vf", f"scale={W}:{H},format=gray", "-fps_mode", "vfr", "-f", "rawvideo", "-"], capture_output=True, check=True).stdout
+    """[s,e) 초의 키프레임을 48x27 회색으로. 키프레임만 디코딩하므로 1080p60 도 수 초면 된다.
+    원격 파일이 응답 없이 멈추는 경우가 있어 읽기 제한(rw_timeout)과 전체 타임아웃을 두고, 실패하면 빈 배열(= 장면을 못 읽음)을 돌려준다."""
+    try:
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-rw_timeout", "15000000", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), "-i", url, "-an",
+                              "-vf", f"scale={W}:{H},format=gray", "-fps_mode", "vfr", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=60).stdout
+    except (subprocess.SubprocessError, OSError):
+        return np.zeros((0, W * H), np.float32)
     return np.frombuffer(raw, np.uint8).reshape(-1, W * H).astype(np.float32) / 255
 
 
