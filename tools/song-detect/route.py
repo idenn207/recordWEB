@@ -23,6 +23,8 @@ def tier(g, has_refs, p=P):
         return "drop", "방송 시작 대기시간(앞 5분)"
     d = g.get("scene")
     if has_refs and d is not None and d > p["scene_drop"]:
+        if m in ("live", "unknown"):                     # 게임 레이아웃이 바뀌면 같은 채널 기준과 멀어진다(마시로 정답 라이브 0.27~0.29). 다중 참조가 watch/idle 로 확정하지 않으면 버리지 않는다
+            return "review", f"장면 멀지만 다중 참조 {m} {d:.2f}"
         return "drop", f"scene {d:.2f}"
     if not has_refs:
         return "review", "새 채널: 같은 채널 기준 프레임 없음" + (" (다중 참조 live)" if m == "live" else "")   # live 여도 auto 는 안 준다

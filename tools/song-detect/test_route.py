@@ -5,6 +5,8 @@ seg = lambda **k: {"keep": True, "len": 200, "scene": 0.04, **k}
 assert tier(seg(), True)[0] == "auto"
 assert tier(seg(keep=False, why="short"), True) == ("drop", "short")
 assert tier(seg(scene=0.30), True)[0] == "drop"            # 같이 보기/영상 시청 화면
+assert tier(seg(scene=0.30, multi="live"), True)[0] == "review"  # 다중 참조가 watch/idle 이 아니면 멀어도 review
+assert tier(seg(scene=0.30, multi="unknown"), True)[0] == "review"
 assert tier(seg(scene=0.30), False)[0] == "review"         # 새 채널은 기준이 없어 판단 보류
 assert tier(seg(scene=0.10), True)[0] == "review"          # 애매한 장면(콘서트 0.08~0.12 대)
 assert tier(seg(scene=0.010), True)[0] == "review"        # 대기 화면(기준 프레임 오염으로 거리가 0에 가까움)
