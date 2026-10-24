@@ -9,7 +9,7 @@
 사용: python route.py <segments.json 입력> <출력> [has_refs=1]"""
 import json, sys
 
-P = dict(scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
+P = dict(wait_s=300, scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
 # shortcut: 임계값은 3개 채널에서 정함, 새 채널의 같은 채널 기준이 쌓이면 채널별 분포로 다시 보정
 
 
@@ -19,6 +19,8 @@ def tier(g, has_refs, p=P):
     m = g.get("multi")                                   # scene_multi.classify 결과(선택). idle/watch 는 레이아웃 근거라 채널 기준 없이도 drop
     if m in ("idle", "watch"):
         return "drop", f"다중 참조: {m}"
+    if g.get("start", 1e9) < p["wait_s"]:
+        return "drop", "방송 시작 대기시간(앞 5분)"
     d = g.get("scene")
     if has_refs and d is not None and d > p["scene_drop"]:
         return "drop", f"scene {d:.2f}"

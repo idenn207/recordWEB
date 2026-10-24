@@ -15,7 +15,11 @@ _live = {"V11": (24, 245), "V12": (20, 245), "V13": (20, 230), "V14": (20, 187),
          "V16": (23, 267), "V22": (18, 150), "V21": (97, 313)}
 BLIND5 = {v: dict(live=False, tag=t, user=None, boundary_ok=None) for t, vs in _fp.items() for v in vs.split()}
 BLIND5.update({v: dict(live=True, tag=None, user=list(u), boundary_ok=(v != "V21")) for v, u in _live.items()})
-ADD = {"blind5": BLIND5}
+# blind6: 사용자는 라이브 여부만 판정(경계 없음). 오탐 3개는 방송 시작 직후 대기시간 음원. V08 V15 V22 는 라이브 시작이 클립 안 12/15/10초(우리는 20초에서 시작 = 늦음)
+_fp6 = "V05 V10 V29".split()
+BLIND6 = {f"V{i:02d}": dict(live=f"V{i:02d}" not in _fp6, tag="idle_screen" if f"V{i:02d}" in _fp6 else None, user=None, boundary_ok=None) for i in range(1, 31)}
+BLIND6.update({"V08": dict(live=True, tag=None, user=[12, None], boundary_ok=None), "V15": dict(live=True, tag=None, user=[15, None], boundary_ok=None), "V22": dict(live=True, tag=None, user=[10, None], boundary_ok=None)})
+ADD = {"blind5": BLIND5, "blind6": BLIND6}
 
 
 def add(name, labels):
