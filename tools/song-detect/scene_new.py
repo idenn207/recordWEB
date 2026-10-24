@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 from scene import thumbs, dist
 import scene_pool
-from route import tier
+from route import tier, known_neg
 from vod import url144
 from scene_multi import classify
 
@@ -30,6 +30,7 @@ for v in vods:
         if R is not None:
             s["scene"] = dist(fr, R)
         s["tier"], s["tier_why"] = tier(s, R is not None)
+        known_neg(v["videoNo"], s)
         out.append(s)
     json.dump(out, open(OUT / f"{v['videoNo']}.segments.json", "w", encoding="utf8"), ensure_ascii=False, indent=1)
     print(v["date"], v["name"], v["videoNo"], "기준" if R is not None else "기준 없음", {t: sum(s["tier"] == t for s in out) for t in ("auto", "review", "drop")}, flush=True)

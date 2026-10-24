@@ -5,7 +5,7 @@ import json, sys
 from pathlib import Path
 import numpy as np
 from scene import thumbs, dist
-from route import tier
+from route import tier, known_neg
 from vod import url144
 from scene_multi import classify, pools, feats
 
@@ -36,6 +36,7 @@ for v in json.load(open("data/vods11.json", encoding="utf8")):
         if R is not None:
             s["scene"] = dist(fr, R)
         s["tier"], s["tier_why"] = tier(s, R is not None)
+        known_neg(v["videoNo"], s)
         s["src"] = f.parent.name
         out.append(s)
     json.dump(out, open(OUT / f"{v['videoNo']}.segments.json", "w", encoding="utf8"), ensure_ascii=False, indent=1)

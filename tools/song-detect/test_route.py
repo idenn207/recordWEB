@@ -17,6 +17,10 @@ assert tier(seg(multi="idle", scene=None), True)[0] == "drop"              # 대
 assert "다중" in tier(seg(multi="live"), False)[1] and tier(seg(multi="live"), False)[0] == "review"   # live 라도 새 채널은 auto 금지
 assert tier(seg(multi="unknown"), False)[0] == "review"
 assert tier(seg(multi="live"), True)[0] == "auto"          # 기존 채널 기준 경로는 그대로
+from route import known_neg
+g = seg(start=5040, end=5170, tier="auto")                 # 확인된 비대상(blind7 A)과 겹치면 drop
+known_neg(15761307, g); assert g["tier"] == "drop"
+g = seg(start=5040, end=5170, tier="auto"); known_neg(1, g); assert g["tier"] == "auto"
 print("ok")
 # 기준 풀 분할이 평가 대상을 새지 않는지 (scene_pool.excluder)
 from scene_pool import excluder

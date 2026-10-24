@@ -39,6 +39,18 @@ def tier(g, has_refs, p=P):
     return "auto", ""
 
 
+def known_neg(vid, g, path="data/known_negatives.json"):
+    """사용자가 '클립 대상 아님'으로 확인한 구간(영상번호, 시작/끝초)과 절반 이상 겹치면 drop. 오디오·장면으로 못 거르는 유형(게임 중 우발적 가창 등)용 임시 방어.
+    shortcut: 확인된 사례만 막는다, 같은 유형이 쌓이면 규칙(특징)으로 일반화"""
+    from pathlib import Path
+    if not g["keep"] or not Path(path).exists():
+        return
+    for k in json.load(open(path, encoding="utf8")):
+        ov = min(g["end"], k["end"]) - max(g["start"], k["start"])
+        if str(k["videoNo"]) == str(vid) and ov >= 0.5 * min(g["end"] - g["start"], k["end"] - k["start"]):
+            g["tier"], g["tier_why"] = "drop", "확인된 비대상: " + k["why"]
+
+
 if __name__ == "__main__":
     seg_in, seg_out = sys.argv[1:3]
     has_refs = next((a[9:] for a in sys.argv if a.startswith("has_refs=")), "1") == "1"
