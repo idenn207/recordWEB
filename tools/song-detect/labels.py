@@ -19,6 +19,11 @@ BLIND5.update({v: dict(live=True, tag=None, user=list(u), boundary_ok=(v != "V21
 _fp6 = "V05 V10 V29".split()
 BLIND6 = {f"V{i:02d}": dict(live=f"V{i:02d}" not in _fp6, tag="idle_screen" if f"V{i:02d}" in _fp6 else None, user=None, boundary_ok=None) for i in range(1, 31)}
 BLIND6.update({"V08": dict(live=True, tag=None, user=[12, None], boundary_ok=None), "V15": dict(live=True, tag=None, user=[15, None], boundary_ok=None), "V22": dict(live=True, tag=None, user=[10, None], boundary_ok=None)})
+# blind7(사용자 답변, 2026-10-25): V번호가 아니라 (videoNo, 시작초)로 식별하는 개별 후보. incidental = 라이브지만 게임 중 우발적/비정형이라 클립 가치 없음(라이브 아님으로 취급).
+BLIND7 = {"A_후야_15761307_5038": dict(live=False, tag="incidental", note="게임 따라 부르기, 00:52 MR 시작, 끝 끊김"),
+          "D1_히나_411": dict(live=False, tag="idle_screen", note="채팅 중 무반주 5초 후 음원"), "D2_히나_811": dict(live=False, tag="cover_watch", note="타인 음원"),
+          "D3_히나_1190": dict(live=True, tag=None, note="마인크래프트 버스킹, 관객 호응 포함"),
+          "B1 B2 C1 C2 E": dict(live=True, tag=None, note="마시로 라이브(완주 미확인)")}
 ADD = {"blind5": BLIND5, "blind6": BLIND6}
 
 
