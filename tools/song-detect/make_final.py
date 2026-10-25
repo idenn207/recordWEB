@@ -3,12 +3,13 @@
   (b) _ctx20.mp4  : 앞뒤 20초 맥락 포함(챕터 START/END 로 위치 표시)
   (c) .json       : 원본, 구간, tier, 근거, 경계 신호, 측정값(컷 오차, A/V 싱크), 곡 길이
 파일명 YYMMDD_스트리머_HHMMSS-HHMMSS_곡길이.mp4 (시각 = 원본 녹화 파일 안의 위치). 출력 out/final/<YYMMDD_스트리머_id>/.
-사용: python make_final.py <id> --src <URL|파일> [--wav data/vod/<id>.wav] [--off <초>] [--tiers auto,review,optional] [--only 1,3] [--out out/final] [--jobs 2] [--name 이름] [--date YYYY-MM-DD]
+사용: python make_final.py <id> --src <URL|파일> [--wav data/vod/<id>.wav] [--off <초>] [--tiers auto,review,optional] [--only 1,3] [--out out/final] [--jobs 2] [--name 이름] [--date YYYY-MM-DD] [--likely] [--no-ctx]
   카드의 시각은 wav(치지직 VOD) 기준이다. --src 가 다른 녹화(NAS)면 오디오 상호상관으로 오프셋(VOD - 원본)을 3지점에서 재서 쓴다(--off 로 직접 지정 가능, 카드가 원본 기준이면 --off 0).
   멱등(json ok 이면 건너뜀), 실패 3회 재시도, 인코더는 h264_nvenc 우선 실패 시 libx264. HTTP 는 -ss 를 입력 앞에 둬서 곡 구간(+여유)만 읽는다.
+  --likely: review 중 카드의 likely(route.mark_likely) 인 곡만(파일명 끝 '_likely미검증', 메타 tier=likely; 사람 검수 전). --no-ctx: _ctx20 맥락본을 만들지 않는다.
   python make_final.py selftest
 shortcut: 카드/원본이 같은 방송이고 오프셋이 일정(드리프트 없음)하다고 본다(3지점 일치 검사로 확인, 어긋나면 중단). 영상 컷 시각은 -ss 정확 디코드(<=1프레임)에 맡기고 오디오 상호상관 + 스트림 시작 차로 간접 측정."""
-import glob, hashlib, json, os, subprocess, sys, time
+import glob, hashlib, json, os, re, subprocess, sys, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import numpy as np
@@ -16,7 +17,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent
 SR, FADE, DECLICK, CTX, PRE = 16000, 0.8, 0.02, 20.0, 10.0
 import limits
-THREADS, READRATE = max(1, limits.cpu_cores() // 2), limits.net_MBps("lan") / 2 / 1.1    # shortcut: 동시 2작업 가정(--jobs 기본), 원본 최대 ~1.06MB/s(NAS 61개 실측)라서 배속 = (LAN 예산/작업수)/1.1; --jobs 를 올리면 같이 조정
+THREADS, READRATE = max(1, limits.cpu_cores() // 2), limits.net_MBps("lan") / 2 / 1.1    # 실측(2026-10-26): -readrate 는 1080p60 ts 에서 처리를 3배 느리게 했다(60초 클립 37초 -> 12.7초). 원본 비트레이트가 1MB/s 급이라 읽기량은 상한(100MB/s)보다 훨씬 작아 제거. shortcut: 동시 2작업 가정(--jobs 기본), 원본 최대 ~1.06MB/s(NAS 61개 실측)라서 배속 = (LAN 예산/작업수)/1.1; --jobs 를 올리면 같이 조정
 LOW = 0x4000  # BELOW_NORMAL_PRIORITY_CLASS (Windows). 다른 OS 에서는 무시
 _cf = dict(creationflags=LOW) if os.name == "nt" else {}
 
@@ -76,12 +77,12 @@ def encode(src, t0, t1, out, vf=None, af=None, chap=None, gpu=True, br="8M", mr=
     """src 의 [t0,t1] 를 프레임 정확하게 재인코딩. 입력 -ss 로 PRE 초 앞까지 빠르게 점프(HTTP 는 그 구간부터만 읽음) 후 출력 -ss 로 정확 컷."""
     s0 = max(0.0, t0 - PRE)
     # 비트레이트 상한이 없으면 nvenc cq 가 원본(8Mbps)의 25배로 부풀어 오른다(실측 750MB/3분47초)
-    v = ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "23", "-b:v", br, "-maxrate", mr, "-bufsize", "20M"] if gpu else ["-c:v", "libx264", "-preset", "medium", "-crf", "21", "-maxrate", mr, "-bufsize", "20M"]
+    v = ["-c:v", "h264_nvenc", "-preset", "p3", "-rc", "vbr", "-cq", "23", "-b:v", br, "-maxrate", mr, "-bufsize", "20M"] if gpu else ["-c:v", "libx264", "-preset", "medium", "-crf", "21", "-maxrate", mr, "-bufsize", "20M"]
     # 출력 -ss 는 필터 뒤에서 잘라 fade 시각이 어긋난다(실측: 오디오 fade 가 10초 일찍 시작) -> 필터 안에서 trim 후 pts 를 0 으로 맞추고 fade
     rel = f"{t0 - s0:.4f}"
     vf = f"trim=start={rel},setpts=PTS-STARTPTS" + (f",{vf}" if vf else "") + (",scale=1280:720" if chap else "")   # 확인용(ctx20)은 720p
     af = f"atrim=start={rel},asetpts=PTS-STARTPTS" + (f",{af}" if af else "")
-    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", str(THREADS)] + (["-readrate", f"{READRATE:.1f}"] if str(src).startswith("http") else []) + ["-ss", f"{s0:.3f}", "-i", src] + (["-i", chap] if chap else []) + ["-t", f"{t1 - t0:.3f}", "-map", "0:v:0", "-map", "0:a:0"]
+    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", str(THREADS)] + (["-hwaccel", "cuda"] if gpu else []) + ["-ss", f"{s0:.3f}", "-i", src] + (["-i", chap] if chap else []) + ["-t", f"{t1 - t0:.3f}", "-map", "0:v:0", "-map", "0:a:0"]
     cmd += ["-vf", vf, "-af", af] + v + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-map_chapters", "1" if chap else "-1", "-movflags", "+faststart", out + ".part.mp4"]
     try:
         sh(cmd, retries=2)
@@ -102,10 +103,84 @@ def snap_quiet(pcm, a, t, ref):
     return (float(q[np.abs(q - t).argmin()]), True) if len(q) else (t, False)
 
 
-def make(card, src, off, wav, slug_dir, name, date, enc_log):
+RULE = "v3-pad"          # 규칙 버전: 멱등 키(json.rule 이 다르면 다시 만든다). v2 = 시작/끝 무음 공백 여유, v3 = 무음 없으면 음성 없음(voice-free) 폴백 + 출력 리미터
+PAD_WIN, PAD_MIN, PAD_EDGE = 2.0, 0.3, 0.05      # 여유 탐색 창(초), 이보다 짧은 공백은 여유 없음, 공백 시작 뒤 앞소리 꼬리 제외(초)
+CODE = [("새 채널", "NEW"), ("정지 화면", "IDLE"), ("장면 멀지만", "FAR"), ("장면 애매", "AMB"), ("짧음", "SHORT"), ("김", "LONG"), ("장면 거리를 못", "NOSCENE"), ("피아노", "PIANO"), ("승인 라이브지만", "BD")]
+
+
+def code_of(why):
+    return next((c for k, c in CODE if (why or "").startswith(k)), "ETC")
+
+
+def gaps(pcm, a, ref, t0, t1, free=False):
+    """[t0,t1) 0.1초 프레임 중 공백의 연속 구간 [(시작, 길이)]과 말소리(Speech>=0.3) 프레임 시각들.
+    free=False: 무음(곡 중앙값보다 25dB 낮고 Speech<0.3, snap.quiet 기준). free=True: 음성 없음(Speech<0.3 이고 Singing<0.3, 배경음/MR 은 허용)."""
+    from snap import rms_db, HOP, FR
+    ts, db = rms_db(pcm, t0, t1)
+    ix = [min(int(t / HOP), len(a) - 1) for t in ts]
+    sp = a[ix, 1]
+    q = (sp < 0.3) & ((a[ix, 0] < 0.3) if free else (db < ref - 25))
+    G, i = [], 0
+    while i < len(ts):
+        j = i
+        while j < len(ts) and q[j] == q[i]:
+            j += 1
+        if q[i]:
+            G.append((float(ts[i]), (j - i) * FR))
+        i = j
+    return G, ts[sp >= 0.3]
+
+
+def pick(pcm, a, ref, t0, t1, ok):
+    """무음 공백 우선, 0.3초 이상이 없으면 음성 없음 공백으로 폴백. ok(공백, 말소리 시각들)가 후보 조건(말소리를 건너지 않음). (선택 공백|None, 종류, 후보 기록)"""
+    for kind, free in (("quiet", False), ("free", True)):
+        G, spk = gaps(pcm, a, ref, t0, t1, free)
+        best = max((g for g in G if ok(g, spk)), key=lambda g: g[1], default=None)
+        if best and best[1] >= PAD_MIN:
+            return best, kind, [[round(x, 2), round(y, 2)] for x, y in G]
+    return None, None, [[round(x, 2), round(y, 2)] for x, y in G]
+
+
+def lead_pad(pcm, a, ref, s):
+    """시작 여유: s 앞 PAD_WIN 초에서 마지막 말소리 뒤의 공백(무음 우선, 없으면 음성 없음) 중 가장 긴 것의 시작+PAD_EDGE 를 클립 시작으로(0.3초 미만이면 s). (시작, 기록)
+    shortcut: 앞 곡 소리 조각은 말소리(Speech)와 음성 없음 판정의 Singing 으로만 가려낸다, MR 카운트인/숨소리는 곡 쪽 소리로 허용."""
+    best, kind, G = pick(pcm, a, ref, s - PAD_WIN, s, lambda g, spk: g[0] > (float(spk.max()) if len(spk) else -1e9))
+    cut = min(best[0] + PAD_EDGE, s) if best else s
+    return cut, dict(gaps=G, chosen=[round(best[0], 2), round(best[1], 2)] if best else None, kind=kind, pad=round(s - cut, 2))
+
+
+def trail_pad(pcm, a, ref, e):
+    """종료 여유: e 뒤 PAD_WIN 초에서 첫 말소리 앞의 공백(무음 우선, 없으면 음성 없음) 중 가장 긴 것의 가운데를 종료점으로(0.3초 미만이면 e)."""
+    best, kind, G = pick(pcm, a, ref, e, e + PAD_WIN, lambda g, spk: g[0] < (float(spk.min()) if len(spk) else 1e9))
+    cut = e
+    if best:
+        cut = max(e, best[0] + max(PAD_EDGE, (best[1] - PAD_EDGE) / 2))
+    return cut, dict(gaps=G, chosen=[round(best[0], 2), round(best[1], 2)] if best else None, kind=kind, pad=round(cut - e, 2))
+
+
+def carry(slug_dir, card, cs, ce):
+    """같은 곡을 v2 규칙으로 이미 만들었고 컷이 같으며 클리핑 의심이 아니면(리미터가 필요 없음) 다시 인코딩하지 않고 json 만 v3 로 승계한다. 승계한 meta 또는 None."""
+    for js in slug_dir.glob("*.json"):
+        if js.name.endswith("_ctx20.json"):
+            continue
+        m = json.loads(js.read_text(encoding="utf8"))
+        if m.get("rule") != "v2-pad" or not m.get("ok") or abs(m["card_start"] - card["start"]) > 1 or abs(m["vod_start"] - cs) > 0.05 or abs(m["vod_end"] - ce) > 0.05:
+            continue
+        r = sh(["ffmpeg", "-nostats", "-i", slug_dir / m["files"]["final"], "-af", "volumedetect", "-vn", "-f", "null", "-"]).stderr
+        if float(re.search(r"max_volume: (-?[\d.]+) dB", r)[1]) >= -1.0:
+            return None
+        m.update(rule=RULE, carried_from="v2-pad", limiter=False)
+        tmp = js.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf8")
+        os.replace(tmp, js)
+        return m
+    return None
+
+
+def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ctx=False):
     s, e, tier = card["start"], card["end"], card["tier"]
     pcm = a = None
-    adj = []
+    adj, lead, trail = [], dict(pad=0.0), dict(pad=0.0)
     if wav:
         from paths import cache_of
         from snap import pcm_of, rms_db
@@ -115,26 +190,42 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log):
         e2, m2 = snap_quiet(pcm, a, e, ref)
         adj = [("start", s, s2) if m1 else None, ("end", e, e2) if m2 else None]
         s, e = s2, e2
+        cs, lead = lead_pad(pcm, a, ref, s)
+        ce, trail = trail_pad(pcm, a, ref, e)
+    else:
+        cs, ce = s, e
+    song_s, song_e = s, e                                 # 곡 자체 경계(여유 제외); 이후 s, e = 실제 컷
+    s, e = cs, ce
     ns, ne = s - off, e - off
     dur = e - s
-    base = f"{date[2:4]}{date[5:7]}{date[8:10]}_{name.replace(' ', '')}_{hms6(ns)}-{hms6(ne)}_{int(dur // 60)}m{int(dur % 60):02d}s"
+    sfx = f"_{'R' if tier == 'review' else 'O'}_{code_of(card.get('tier_why'))}" + ("-L" if card.get("likely") else "") if tier in ("review", "optional") else ""    # 등급 약어(R/O)+근거 코드, -L = likely 조건 통과
+    base = f"{date[2:4]}{date[5:7]}{date[8:10]}_{name.replace(' ', '')}_{hms6(ns)}-{hms6(ne)}_{int(dur // 60)}m{int(dur % 60):02d}s{sfx}" + ("_likely미검증" if likely else "")
     mp4, ctx, js = (slug_dir / f"{base}{x}" for x in (".mp4", "_ctx20.mp4", ".json"))
-    if js.exists() and json.loads(js.read_text(encoding="utf8")).get("ok") and mp4.exists() and ctx.exists():
-        return json.loads(js.read_text(encoding="utf8"))
-    vf = f"fade=t=out:st={dur - FADE:.3f}:d={FADE}"
-    af = f"afade=t=in:d={DECLICK},afade=t=out:st={dur - FADE:.3f}:d={FADE}"
+    if js.exists() and (j0 := json.loads(js.read_text(encoding="utf8"))).get("ok") and j0.get("rule") == RULE and mp4.exists() and (no_ctx or ctx.exists()):
+        return j0
+    if c := carry(slug_dir, card, s, e):
+        return c
+    t_start = time.time()
+    fade_st = dur - FADE - (trail["pad"] if trail["pad"] >= FADE else 0.0)   # 끝 여유가 0.8초 이상이면 곡 끝부터 페이드, 아니면 종료점 앞 0.8초
+    vf = f"fade=t=out:st={fade_st:.3f}:d={FADE}"
+    af = f"afade=t=in:d={DECLICK},afade=t=out:st={fade_st:.3f}:d={FADE},alimiter=limit=0.891:level=0"      # 최대 -1dBFS 리미터(클리핑 의심 곡 대응, level=0 = 자동 음량 보정 끔)
     enc = encode(src, ns, ne, str(mp4), vf, af)
     c0, c1 = max(0.0, ns - CTX), ne + CTX
     ch = slug_dir / f"{base}.ffmeta"
-    ch.write_text(f";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND={int((ns - c0) * 1000)}\ntitle=앞 맥락\n[CHAPTER]\nTIMEBASE=1/1000\nSTART={int((ns - c0) * 1000)}\nEND={int((ne - c0) * 1000)}\ntitle=곡 (START~END)\n"
-                  f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={int((ne - c0) * 1000)}\nEND={int((c1 - c0) * 1000)}\ntitle=뒤 맥락\n", encoding="utf8")
-    encode(src, c0, c1, str(ctx), chap=str(ch), br="2M", mr="3M")
-    ch.unlink()
+    if not no_ctx:
+        ch.write_text(f";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND={int((ns - c0) * 1000)}\ntitle=앞 맥락\n[CHAPTER]\nTIMEBASE=1/1000\nSTART={int((ns - c0) * 1000)}\nEND={int((ne - c0) * 1000)}\ntitle=곡 (START~END)\n"
+                      f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={int((ne - c0) * 1000)}\nEND={int((c1 - c0) * 1000)}\ntitle=뒤 맥락\n", encoding="utf8")
+        encode(src, c0, c1, str(ctx), chap=str(ch), br="2M", mr="3M")
+        ch.unlink()
     m = check(mp4, dur, s, e, wav)
-    meta = dict(src=str(src), card_idx=card["idx"], vod_start=s, vod_end=e, card_start=card["start"], card_end=card["end"], offset=off, src_start=ns, src_end=ne, song_len=dur, tier=tier,
+    meta = dict(rule=RULE, src=str(src), card_idx=card["idx"], vod_start=s, vod_end=e, card_start=card["start"], card_end=card["end"], offset=off, src_start=ns, src_end=ne, song_len=song_e - song_s, clip_len=dur,
+                song_start=song_s, song_end=song_e, lead=lead, trail=trail, tier="likely" if likely else tier, likely=card.get("likely"), code=code_of(card.get("tier_why")),
                 tier_why=card.get("tier_why"), why=[x for x in adj if x], boundary=card.get("boundary"), signals=card.get("signals"), scene=card.get("scene"), multi=card.get("multi"),
-                ctx_start_in_ctx=ns - c0, encoder=enc, check=m, ok=m["ok"], files=dict(final=mp4.name, ctx20=ctx.name))
-    js.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf8")
+                ctx_start_in_ctx=ns - c0, limiter=True, encoder=enc, check=m, ok=m["ok"], files=dict(final=mp4.name, ctx20=None if no_ctx else ctx.name), note="likely, 미검증 (사람 검수 전, route.mark_likely 조건만 통과)" if likely else None)
+    tmp = js.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf8")
+    os.replace(tmp, js)                                   # 재생 중인 파일이 깨지지 않게 임시 이름으로 만든 뒤 교체(mp4 는 encode 가 .part.mp4 -> replace)
+    pass  # 휴지 불필요: NVDEC+nvenc p3 는 GPU 사용률 30% 안팎(실측), 80% 상한 아래            # GPU(nvenc) 가동률 약 80%: 인코딩 시간의 25% 만큼 쉰다
     return meta
 
 
@@ -160,10 +251,10 @@ def check(mp4, dur, s, e, wav):
     return r
 
 
-def main(vid, src, wav, off, tiers, only, outroot, jobs, name, date):
+def main(vid, src, wav, off, tiers, only, outroot, jobs, name, date, likely=False, no_ctx=False):
     os.chdir(ROOT)
     cards = [json.load(open(p, encoding="utf8")) for p in sorted(glob.glob(f"out/{vid}/cards/*.json"))]
-    cards = [c for c in cards if c["tier"] in tiers and (not only or c["idx"] in only)]
+    cards = [c for c in cards if c["tier"] in tiers and (not only or c["idx"] in only) and (not likely or c.get("likely"))]
     wav = wav or (f"data/vod/{vid}.wav" if Path(f"data/vod/{vid}.wav").exists() else None)
     if name is None or date is None:
         v = next((v for p in glob.glob("data/vods*.json") for v in json.load(open(p, encoding="utf8")) if str(v["videoNo"]) == vid), {})
@@ -174,7 +265,7 @@ def main(vid, src, wav, off, tiers, only, outroot, jobs, name, date):
     d = Path(outroot) / f"{date[2:4]}{date[5:7]}{date[8:10]}_{name.replace(' ', '')}_{vid}"
     d.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(jobs) as ex:
-        for c, m in zip(cards, ex.map(lambda c: make(c, src, off, wav, d, name, date, None), cards)):
+        for c, m in zip(cards, ex.map(lambda c: make(c, src, off, wav, d, name, date, None, likely, no_ctx), cards)):
             k = m["check"]
             print(f"  #{c['idx']:02d} {m['tier']:6s} {m['files']['final']} ok={m['ok']} dur_err={k['dur_err']:+.3f} av={k['av_start_diff']:+.3f} start_err={k.get('start_err', float('nan')):+.3f} end_err={k.get('end_err', float('nan')):+.3f}")
     return d
@@ -195,4 +286,4 @@ if __name__ == "__main__":
         sys.exit()
     opt = lambda k: a[a.index(k) + 1] if k in a else None
     only = {int(x) for x in opt("--only").split(",")} if opt("--only") else None
-    main(a[0], opt("--src"), opt("--wav"), float(opt("--off")) if opt("--off") else None, (opt("--tiers") or "auto").split(","), only, opt("--out") or "out/final", int(opt("--jobs") or 2), opt("--name"), opt("--date"))
+    main(a[0], opt("--src"), opt("--wav"), float(opt("--off")) if opt("--off") else None, (opt("--tiers") or ("review" if "--likely" in a else "auto")).split(","), only, opt("--out") or "out/final", int(opt("--jobs") or 2), opt("--name"), opt("--date"), "--likely" in a, "--no-ctx" in a)
