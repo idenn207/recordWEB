@@ -56,6 +56,20 @@ def known_neg(vid, g, path="data/known_negatives.json"):
             g["tier"], g["tier_why"] = "drop", "확인된 비대상: " + k["why"]
 
 
+def known_pos(vid, g, path="data/approved.json"):
+    """사용자 승인/사람 검수(재생목록 위치 정답) 라이브 구간과 절반 이상 겹치는 review/optional 후보는 auto (이미 사람이 확인한 곡이라 다시 검수 불필요). drop 은 유지.
+    known_neg 보다 먼저 부른다(둘이 겹치면 비대상이 이긴다). 목록은 cache/exp15/mk_approved.py 가 만든다.
+    shortcut: 영상번호+구간 일치만 본다(같은 방송 다시 탐지에서 경계가 조금 달라도 절반 겹침이면 됨), 새 방송에는 도움 안 됨"""
+    from pathlib import Path
+    if not g["keep"] or g.get("tier") not in ("review", "optional") or not Path(path).exists():
+        return
+    for k in json.load(open(path, encoding="utf8")):
+        ov = min(g["end"], k["end"]) - max(g["start"], k["start"])
+        if str(k["videoNo"]) == str(vid) and ov >= 0.5 * min(g["end"] - g["start"], k["end"] - k["start"]):
+            g["tier"], g["tier_why"] = "auto", "승인된 라이브: " + k["src"]
+            return
+
+
 if __name__ == "__main__":
     seg_in, seg_out = sys.argv[1:3]
     has_refs = next((a[9:] for a in sys.argv if a.startswith("has_refs=")), "1") == "1"

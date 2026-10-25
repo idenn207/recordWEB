@@ -1,6 +1,6 @@
 """녹화 파일 하나 -> 라이브 후보 클립 + 증거 카드 (detect -> refine -> finalize -> 장면 -> route(known_neg) -> 클립).
 사용: python pipeline.py <wav> [--video <mp4|url>] [--id <영상번호>] [--name <스트리머>] [--force] [--out out]   |   python pipeline.py selftest
-  호스트는 numpy+ffmpeg 만 필요. detect/refine 은 GPU 도커(song-detect-gpu)를 이 스크립트가 부른다(wav 는 아무 경로 가능, 읽기 전용 마운트).
+  호스트는 numpy+ffmpeg 만 필요. detect/refine 은 상주 분석기 컨테이너 song-analyzer(analyzer_client.py, docker-compose.analyzer.yml)가 처리한다 - 없으면 한 번 띄운다. SONG_ANALYZER=run 이거나 서비스를 못 쓰면(wav 가 프로젝트 폴더 밖 포함) 예전처럼 GPU 도커(song-detect-gpu)를 docker run 으로 부른다.
   --video 생략 시 wav 이름이 숫자(치지직 영상번호)면 144p 주소(vod.url144)를, 아니면 wav 에서 오디오(.m4a)만 자른다. --name 생략 시 data/vods*.json 에서 영상번호로 찾는다(없으면 새 채널 취급: auto 없음).
 출력 out/<id>/: 1_detect.json 2_refine.json 3_final.json 4_scene.json(장면 특징) cards/*.json(후보마다 증거 카드) clips/(auto 만), out/review/<id>/(review 클립). drop 은 카드만.
 멱등: 단계 파일이 있으면 건너뜀. route/카드는 매번 다시 계산(known_negatives.json 수정이 바로 반영), 클립은 있으면 건너뜀. --force 는 out/<id> 의 단계 파일과 클립을 지우고 다시 만든다
@@ -12,7 +12,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DOCKER = ["docker", "run", "--rm", "-e", "MSYS_NO_PATHCONV=1", "-v", f"{ROOT / 'cache'}:/work/cache", "-v", f"{ROOT / 'paths.py'}:/work/paths.py", "-v", f"{ROOT / 'detect.py'}:/work/detect.py"]
+DOCKER = ["docker", "run", "--rm", "-e", "MSYS_NO_PATHCONV=1", "-v", f"{ROOT / 'cache'}:/work/cache", "-v", f"{ROOT / 'paths.py'}:/work/paths.py", "-v", f"{ROOT / 'detect.py'}:/work/detect.py", "-v", f"{ROOT / 'yamnet_backend.py'}:/work/yamnet_backend.py", "-v", f"{ROOT / 'limits.py'}:/work/limits.py"]
 
 
 def hms(t):
@@ -35,6 +35,22 @@ def run(cmd):
         sys.exit(f"실패: {' '.join(map(str, cmd))}\n{r.stdout[-800:]}\n{r.stderr[-800:]}")
 
 
+def analyze(kind, wav, out, mount, seg_in=None):
+    """detect/refine 를 상주 분석기(song-analyzer)에 맡긴다. 서비스를 못 쓰면(SONG_ANALYZER=run, 도커/서비스 없음, 프로젝트 밖 경로, 복구 실패) 기존 docker run 으로 폴백."""
+    if os.environ.get("SONG_ANALYZER", "service") != "run":
+        try:
+            import analyzer_client as C
+            return C.detect(wav, out, vocal_thr=0.2) if kind == "detect" else C.refine(wav, seg_in, out)
+        except C.Unavailable as e:
+            print(f"분석기 서비스를 못 써서 docker run 으로 폴백: {e}", file=sys.stderr)
+        except C.JobError as e:
+            sys.exit(f"분석기 작업 실패: {e}")
+    if kind == "detect":
+        run(DOCKER + ["--gpus", "all"] + mount + ["song-detect-gpu", f"/work/in/{wav.name}", "vocal_thr=0.2", "--out=/work/o/1_detect.json"])
+    else:
+        run(DOCKER + ["--entrypoint", "python", "-v", f"{ROOT / 'refine.py'}:/work/refine.py"] + mount + ["song-detect-gpu", "refine.py", f"/work/in/{wav.name}", "/work/o/1_detect.json", "/work/o/2_refine.json"])
+
+
 def main(wav, video, vid, name, force, outroot):
     os.chdir(ROOT)                                              # route/scene_pool 의 상대 경로(data/, cache/) 기준
     import numpy as np
@@ -49,9 +65,9 @@ def main(wav, video, vid, name, force, outroot):
     f1, f2, f3, f4 = (O / n for n in ("1_detect.json", "2_refine.json", "3_final.json", "4_scene.json"))
     mount = ["-v", f"{wav.parent}:/work/in:ro", "-v", f"{O}:/work/o"]
     if not f1.exists():
-        run(DOCKER + ["--gpus", "all"] + mount + ["song-detect-gpu", f"/work/in/{wav.name}", "vocal_thr=0.2", "--out=/work/o/1_detect.json"])
+        analyze("detect", wav, f1, mount)
     if not f2.exists():
-        run(DOCKER + ["--entrypoint", "python", "-v", f"{ROOT / 'refine.py'}:/work/refine.py"] + mount + ["song-detect-gpu", "refine.py", f"/work/in/{wav.name}", "/work/o/1_detect.json", "/work/o/2_refine.json"])
+        analyze("refine", wav, f2, mount, f1)
     if not f3.exists():
         from finalize import fix
         from paths import cache_of
@@ -69,7 +85,7 @@ def main(wav, video, vid, name, force, outroot):
         from scene_multi import classify, feats
         meta, F = scene_pool.pool()
         LIVEP, NEGP = (scene_pool.cat(meta, F, lambda m: True)[g] for g in ("live", "neg"))
-        R = scene_pool.cat(meta, F, lambda m: m["name"] == name)["live"] if name else None
+        R = scene_pool.cat(meta, F, lambda m: m["name"] == name)["live"] if name and scene_pool.eligible(meta, name) else None   # 승인 이력 부족(5곡/2방송 미만)이면 새 채널 취급
         segs = [g for g in json.load(open(f3, encoding="utf8")) if g["keep"]]
         for s in segs:
             fr = thumbs(video, s["start"], s["end"]) if video else np.zeros((0, 1), np.float32)
@@ -78,7 +94,7 @@ def main(wav, video, vid, name, force, outroot):
             s["scene"] = dist(fr, R) if R is not None else None
         f4.write_text(json.dumps(dict(has_refs=R is not None, segs=segs), ensure_ascii=False, indent=1), encoding="utf8")
     sc = json.load(open(f4, encoding="utf8"))
-    from route import tier, known_neg
+    from route import tier, known_neg, known_pos
     segs = sc["segs"]
     import piano_gate
     piano_gate.annotate(vid, segs)                               # cache/exp12p/other.json 이 있을 때만 g['piano'] 표시(선택)
@@ -87,6 +103,7 @@ def main(wav, video, vid, name, force, outroot):
         old.unlink()
     for i, g in enumerate(segs, 1):
         g["tier"], g["tier_why"] = tier(g, sc["has_refs"])
+        known_pos(vid, g)                                       # 사용자 승인/사람 검수 구간은 auto, 그 뒤 비대상 확인이 이기게 한다
         known_neg(vid, g)
         clip = None
         if g["tier"] in ("auto", "review", "optional"):
@@ -95,6 +112,8 @@ def main(wav, video, vid, name, force, outroot):
             clip = d / f"{hms(g['start'])}{'.mp4' if video else '.m4a'}"
             if not clip.exists():
                 enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac"] if video else ["-vn", "-c:a", "aac"]
+                if video and "192.168.0.10" in video:      # NAS 1080p60 원본: 미리보기용으로 줄인다(auto 720p, 나머지 480p, 30fps)
+                    enc[:0] = ["-vf", f"scale=-2:{720 if g['tier'] == 'auto' else 480},fps=30"]
                 run(["ffmpeg", "-v", "error", "-y", "-ss", f"{g['start']:.2f}", "-to", f"{g['end']:.2f}", "-i", video or str(wav)] + enc + [str(clip)])
         (O / "cards" / f"{i:02d}_{g['tier']}_{hms(g['start'])}.json").write_text(json.dumps(card(g, i, str(clip) if clip else None), ensure_ascii=False, indent=1), encoding="utf8")
     print(vid, name, "기준 있음" if sc["has_refs"] else "새 채널", dict(Counter(g["tier"] for g in segs)), "->", O)

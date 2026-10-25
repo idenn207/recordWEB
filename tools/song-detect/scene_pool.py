@@ -38,8 +38,23 @@ def build():
     print("풀", len(meta), "클립, 라이브", sum(m["live"] for m in meta), "프레임", sum(m["n"] for m in meta))
 
 
+REFS = Path("cache/scene_pool_refs.npz"), Path("cache/scene_pool_refs.json")    # cache/exp15/grab_refs.py: 사람이 검수한 위치 정답(refs*.json)과 사용자 승인 후보의 라이브 프레임
+
+
 def pool():
-    return json.load(open(META, encoding="utf8")), dict(np.load(NPZ))
+    meta, F = json.load(open(META, encoding="utf8")), dict(np.load(NPZ))
+    if all(f.exists() for f in REFS):                   # 있으면 합친다(set='refs', 전부 live). videoNo 가 있어 방송 단위 분할에서 자기 방송은 빠진다
+        meta += json.load(open(REFS[1], encoding="utf8"))
+        F.update(np.load(REFS[0]))
+    return meta, F
+
+
+def eligible(meta, name, keep=lambda m: True, n_min=5, b_min=2):
+    """채널 승인 이력이 충분한가: 승인 라이브 곡 n_min 개 이상이고 서로 다른 방송 b_min 개 이상이어야 같은 채널 기준(has_refs)을 쓴다.
+    미달이면 새 채널 취급(review 전용). 승인 1곡 풀로 auto 가 열려 후야 A(게임 중 따라 부르기)가 auto 에 남았던 문제 방지.
+    shortcut: 5곡/2방송은 근거 표본이 적은 제안값(exp15), 승인이 쌓이면 채널별 오탐률로 재보정"""
+    L = [m for m in meta if m["name"] == name and m["live"] and keep(m)]
+    return len(L) >= n_min and len({m["videoNo"] for m in L}) >= b_min
 
 
 def cat(meta, F, keep):
@@ -85,7 +100,7 @@ def evaluate(unit):
                 same = cat(meta, F, lambda o: keep(o) and o["name"] == m["name"])["live"]
                 fr = F[f"{s}/{v}"]
                 g["multi"], _ = classify(fr, P["live"], P["neg"])
-                if same is not None:
+                if same is not None and eligible(meta, m["name"], keep):
                     has, g["scene"] = True, float(np.median([np.abs(same - f).mean(1).min() for f in fr]))
             R.append(dict(id=f"{s}/{v}", name=k["name"], g=g, has_refs=has, **l))
     T = eval_blind.tiers(R)

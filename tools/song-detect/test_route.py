@@ -33,3 +33,18 @@ ids = lambda u, m: {o["id"] for o in M if excluder(u, m, M)(o)}
 assert ids("broadcast", M[1]) == {"d", "e"} and ids("streamer", M[1]) == {"e"} and ids("clip", M[1]) == {"a", "c", "d", "e"}
 assert ids("prev1", M[2]) == {"b", "d", "e"} and ids("prev1", M[0]) == {"d", "e"}   # 바로 앞 형제 1개만, 첫 클립은 형제 없음
 print("pool ok")
+# 승인 이력 자격 (scene_pool.eligible): 5곡 이상 + 서로 다른 방송 2개 이상, 자기 방송만 빼고 세는 keep 도 지원
+from scene_pool import eligible
+H = lambda n, b: [dict(name="x", videoNo=i % b, live=True) for i in range(n)]
+assert not eligible(H(1, 1), "x") and not eligible(H(12, 1), "x") and not eligible(H(4, 4), "x")   # 1곡, 한 방송에만 쌓임, 곡 수 부족
+assert eligible(H(5, 2), "x") and not eligible(H(5, 2), "y") and not eligible(H(5, 2), "x", lambda m: m["videoNo"] == 0)   # 방송 하나를 빼면 자격 상실
+assert not eligible(H(5, 2) + [dict(name="x", videoNo=9, live=False)] * 9, "x", lambda m: m["videoNo"] != 1)   # 오탐 항목은 세지 않음
+print("eligible ok")
+from route import known_pos
+import json, tempfile, os
+f = tempfile.mktemp(suffix=".json"); json.dump([dict(videoNo=7, start=100, end=300, src="t")], open(f, "w"))
+g = seg(start=120, end=290, tier="review"); known_pos(7, g, f); assert g["tier"] == "auto"
+g = seg(start=120, end=290, tier="review"); known_pos(8, g, f); assert g["tier"] == "review"          # 다른 방송
+g = seg(start=120, end=290, tier="drop"); known_pos(7, g, f); assert g["tier"] == "drop"            # drop 은 승인으로도 못 뒤집음
+g = seg(start=250, end=500, tier="review"); known_pos(7, g, f); assert g["tier"] == "review"        # 절반 미만 겹침
+os.remove(f); print("known_pos ok")

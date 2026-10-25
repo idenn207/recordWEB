@@ -227,3 +227,54 @@ wav 8개 합계 2.80GiB. 오프셋이 있는 6개는 같은 방송이지만 시�
 - 나머지 auto 8곡(마시로 09-22 1, 15724523, 리코 10-17 25213, 15750233, 15758902, 후야 4692, 15781033, 15812877)은 정답 대조 없음.
 - 미연결: lead_in.py(카운트인, 근거 1곡), category_prior.py(보정값 0), singer.py(AUC 0.5), practice.py(review 전용 신호, 길이 규칙이 안전망).
 - 다음: (1) auto 8곡 위험 점검(재생목록/정답 날짜 대조) (2) review 420 축소: 채널별 승인 이력 정책(새 채널은 review 전용 유지, 사람이 승인한 곡을 풀에 추가하는 UX) (3) 백그라운드 서비스화/녹화기 통합은 범위 밖.
+
+## 19. 디바이스 토글 (2026-10-25)
+
+- `yamnet_backend.py`: `scores_windows(pcm, starts, device)`. device = `auto|cuda|cpu`, 인자(`detect.py <wav> device=cpu`, `refine.py ... device=cpu`) 또는 환경변수 `SONG_DEVICE`(기본 auto = torch.cuda 가능하면 cuda). cpu = 기존 TFLite(결과 비트 동일, 청크 병렬 `yamnet_workers`=0 이면 min(4,코어)), cuda = yamnet.tflite 의 int8 가중치를 torch 로 옮긴 배치 추론(추가 의존성 없음).
+- GPU 부하 제한: `SONG_GPU_LIMIT`(기본 0.8, 배치 사이 휴지), `SONG_GPU_MEM`(기본 0.8, VRAM 비율).
+- detect.py/refine.py 는 yamnet_backend.py 가 없는 옛 마운트에서도 기존 TFLite 루프로 돈다(fallback). docker -v 목록에 `yamnet_backend.py` 를 추가해야 GPU 경로가 켜진다(pipeline.py 는 반영, datasets/run_*.sh 와 위 실행 예시는 아직).
+- 테스트: `test_yamnet_backend.py`(도커 안).
+
+## 20. 상주 분석기 서비스와 80% 리소스 상한 (2026-10-25)
+
+요구: 방송마다 `docker run --rm` 으로 컨테이너를 켜고 끄지 말고 분석기 컨테이너 1개가 계속 떠 있을 것(PC Windows 와 NAS Linux 환경 차이를 줄이려고 도커를 쓴다). CPU, GPU(사용률, VRAM), 네트워크는 항상 최대치의 80% 이하(회선 500Mbps -> 50MB/s, NAS LAN 1Gbps -> 100MB/s, 논리코어 80%).
+
+### 구조
+- `analyzer_server.py`(컨테이너 안, 포트 8765): 시작 시 YAMNet(cuda 는 torch 가중치 변환, cpu 는 tflite)과 Demucs 를 한 번 올려 둔다(PC 20초 안팎). `POST /detect {wav, params, out, force}`, `POST /refine {wav, in, out, params}` -> `{job, queue_pos}`, `GET /health`(준비 여부, 디바이스, VRAM 최대/상한), `GET /jobs`, `GET /jobs/<id>`(상태, 진행 로그, 오류). 직렬 큐: GPU 는 동시 작업 1개(두 번째 요청은 큐에서 대기, 시험으로 확인), CPU 는 `SONG_JOBS`(기본 1). 경로는 `/work/...` 만 허용.
+- `detect.detect(..., in_process=True)`: 후보마다 spawn 프로세스를 띄워 모델을 다시 올리던 ProcessPool 대신 상주 Demucs 로 호출(GPU 1 스레드, CPU 는 `workers` 스레드). 기본값(False)이면 기존 CLI 동작 그대로. `refine.refine_file()` 로 refine CLI 본문을 함수로 뺐다(CLI 결과 동일).
+- `analyzer_client.py`(호스트): `ensure_up()`(없으면 `docker compose -p song-analyzer ... up -d` 를 한 번, 있으면 재사용, /health 대기), `detect()`, `refine()`, `status()`, `jobs()`. 호스트 경로를 프로젝트 폴더 기준 `/work/...` 로 바꾼다(프로젝트 밖 경로는 `Unavailable`). 서버가 작업 중 죽으면 ensure_up 으로 되살려 1회 다시 요청, 그래도 안 되면 `Unavailable`.
+- `pipeline.py`: `analyze()` 가 `SONG_ANALYZER=service`(기본)이면 클라이언트를, 서비스를 못 쓰면(`Unavailable`) 또는 `SONG_ANALYZER=run` 이면 예전 `docker run` 을 쓴다(그 목록에 `limits.py` 마운트 추가). 작업 오류(`JobError`)는 폴백하지 않고 중단.
+- `docker-compose.analyzer.yml`: 프로파일 `gpu`(이미지 song-detect-gpu, nvidia 예약, `SONG_DEVICE=auto`)와 `cpu`(이미지 song-detect, `SONG_DEVICE=cpu`, GPU 설정 없음). 컨테이너 `song-analyzer`, `restart: unless-stopped`, `cpus=${SONG_CPU_LIMIT}`(논리코어의 80%: `python limits.py cpus`), `mem_limit 10g`, `127.0.0.1:8765` 만 바인딩, 프로젝트 폴더 전체 `.:/work` 마운트(코드를 고치면 `docker restart song-analyzer` 만, 이미지 재빌드 불필요), healthcheck.
+- `limits.py`: `SONG_LIMIT_PCT`(80), `SONG_INTERNET_MBPS`(500), `SONG_LAN_MBPS`(1000), `cpu_cores()`, `net_MBps()`. 서비스 GPU 가동률/VRAM 기본값(`SONG_GPU_LIMIT`, `SONG_GPU_MEM`)과 torch 스레드, `yamnet_backend.py` 기본값이 여기서 온다.
+
+### 사용
+```
+# PC (GPU). 파이프라인은 ensure_up 으로 알아서 띄우므로 수동 시작은 선택
+docker compose -p song-analyzer -f docker-compose.analyzer.yml --profile gpu up -d     # SONG_CPU_LIMIT 기본 16, 다르면 SONG_CPU_LIMIT=$(python limits.py cpus)
+python analyzer_client.py            # 상태와 최근 작업;   docker logs song-analyzer
+python pipeline.py data/vod/<번호>.wav      # SONG_ANALYZER=run 이면 예전 방식
+# NAS (CPU, Linux). 이미지 song-detect 가 있어야 한다
+SONG_CPU_LIMIT=$(python3 limits.py cpus) docker compose -p song-analyzer -f docker-compose.analyzer.yml --profile cpu up -d
+# 시험용 별도 인스턴스(운영과 분리): SONG_ANALYZER_NAME=song-analyzer-dev SONG_PORT=8766 SONG_ANALYZER_PORT=8766 로 위 명령(-p song-analyzer-dev) 과 클라이언트 모두에 지정
+```
+Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮으므로 이미지를 다시 빌드하지 않아도 된다.
+
+### 호스트 쪽 상한
+- 네트워크: `datasets/fetch_vod.py` 기본 속도 45 -> `limits.net_MBps("internet")`(50MB/s). `datasets/nas_ingest.py` 의 ffmpeg 에 `-readrate`(= LAN 예산 100MB/s / 동시 수집 수 / 원본 비트레이트, NAS 61개 실측 0.80~1.06MB/s)와 `-threads 2`. `make_final.py` 는 http 입력에 `-readrate`(동시 2작업 가정, 약 45배속)와 `-threads`(코어 80%의 절반). `scene.py` 키프레임 ffmpeg 는 `-threads 2` + 낮은 우선순위(Windows). `-readrate` 는 ffmpeg 가 입력을 배속 단위로 읽는 방식이라 바이트 상한이 아니라 원본 비트레이트 가정 위의 상한이다(NAS 파일 20초 분량을 3배속 지정 시 0.6초 -> 6.8초로 확인). 파이썬 스로틀 파이프는 TS 가 임의 접근/재연결이 필요해 쓰지 않았다.
+- CPU: 컨테이너 `cpus`(논리코어 20 중 16), torch 스레드 16 이하. GPU: 서비스가 배치 사이 휴지로 가동률 80%(`SONG_GPU_LIMIT`)와 VRAM 80%(`SONG_GPU_MEM`)를 건다.
+
+### 측정 (이 PC: RTX 4070 Ti 12GB, 논리코어 20, 58분 안팎 방송 3개: 15724523/15740846/15741625 의 사본)
+- 컨테이너 시작: run 방식은 방송당 2회(detect, refine) = 3방송 6회, 서비스 방식은 처리 방송 수와 무관하게 1회(첫 요청 때 ensure_up 이 시작, 그 뒤 재사용; 모델 로딩 20초는 서비스 시작 때 1회).
+- 방송당 시간(detect+refine): run 67/52/55초 = 합 174초, 서비스 48/36/37초 = 합 121초(-30%; 모델 로딩/컨테이너 기동 방송당 약 15~20초 절감). 서비스 시작 1회분 20초는 별도.
+- 결과 동일성: YAMNet 점수는 서비스와 run 이 비트 동일(최대차 0.0). 방송 2개는 1_detect/2_refine 바이트 동일, 1개는 5초짜리 drop 후보 1개 차이: Demucs `apply_model(shifts=1)` 가 파이썬 `random` 으로 시간 이동을 정해서 run 방식 자체도 실행마다 다르다(같은 방송을 run 으로 4번 돌려 11, 11, 11, 10개). 서비스도 같은 성질. pipeline 전체(detect, refine, finalize, 장면, 카드) 서비스 대 폴백 비교에서 1_detect 동일, 2_refine 은 한 구간 시작이 0.4초 달랐다(GPU 컨볼루션의 알고리즘 선택이 실행마다 달라지는 것으로 보임; 서비스/run 무관한 기존 GPU 경로의 성질).
+- 80% (서비스, 두 방송 연속 요청, 250ms 간격 nvidia-smi, 시험 시 다른 앱의 GPU 사용 약 15% 포함): GPU 평균 사용률 68.4% (상한 해제 `SONG_GPU_LIMIT=1.0` 은 85.6%, 소요 46초 -> 57초), 순간 최대 98%(배치 단위 휴지라 순간값은 100% 가능: 250ms 표본의 57% 가 80% 초과), VRAM 서비스 최대 5378MiB / 상한 9825MiB, 컨테이너 CPU 평균 0.75코어(상한 16코어), 메모리 1.4GiB / 10GiB. CPU 프로파일(PC 에서 시험): 7분 구간 detect 중 docker stats 평균 700% 최대 924% (상한 1600%), 컨테이너 시작 23초.
+- 두 번째 요청은 큐에서 대기(첫 작업이 끝난 뒤 시작, 대기 25초). 서비스 강제 종료(`docker kill`) 시험: 클라이언트가 재시작을 기다려 다시 요청해 68초에 완료, 결과 동일. 서비스 불가(이미지 없음) 시험: pipeline 이 docker run 폴백으로 끝까지 완료.
+
+### 임시 제한기 gpu_governor.py 제거 방법 (이 PC 에서 아직 돌고 있다 - 메인이 정리)
+서비스 내장 스로틀(SONG_GPU_LIMIT 0.8)이 있으므로 필요 없다. 오히려 `ancestor=song-detect-gpu` 인 모든 컨테이너를 `docker pause` 하므로 song-analyzer 도 얼려서 healthcheck 를 unhealthy 로 만들고 시간만 늘린다(시험 중 확인: 시험 컨테이너가 주기적으로 paused). 제거: (1) `Get-CimInstance Win32_Process | ? {$_.CommandLine -match 'gpu_governor.py 80'}` 로 PID 확인 후 종료(종료 시 일시정지된 컨테이너는 스스로 푼다), (2) `tools/song-detect/gpu_governor.py` 삭제, (3) `docker ps --filter status=paused` 로 남은 것 확인.
+
+### 한계
+- GPU 가동률은 배치 사이 휴지 방식이라 평균은 80% 이하여도 1초 미만 순간값은 100% 가능(전력 제한 nvidia-smi -pl 은 관리자 권한 필요). 같은 PC 의 다른 프로그램 사용분은 보지 못한다.
+- 프로젝트 폴더 밖 wav/출력은 컨테이너에 마운트돼 있지 않아 run 방식으로 폴백한다. 컨테이너는 root 로 쓰므로 Linux(NAS)에서는 cache/ 와 out/ 파일 소유자가 root 가 된다.
+- 네트워크 상한은 앱(ffmpeg, fetch_vod) 단위다. `make_final.py --jobs` 를 2보다 올리면 READRATE 도 조정한다. 작업 기록은 서버 메모리에만 있어 재시작하면 사라진다(cache/detect 캐시는 남는다). 인증 없음(127.0.0.1 바인딩 전제).
+- NAS(CPU 프로파일)는 이 PC 에서 CPU 프로파일로만 시험했고 실제 NAS 배포/실측은 하지 않았다.
