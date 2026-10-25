@@ -278,3 +278,39 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - 프로젝트 폴더 밖 wav/출력은 컨테이너에 마운트돼 있지 않아 run 방식으로 폴백한다. 컨테이너는 root 로 쓰므로 Linux(NAS)에서는 cache/ 와 out/ 파일 소유자가 root 가 된다.
 - 네트워크 상한은 앱(ffmpeg, fetch_vod) 단위다. `make_final.py --jobs` 를 2보다 올리면 READRATE 도 조정한다. 작업 기록은 서버 메모리에만 있어 재시작하면 사라진다(cache/detect 캐시는 남는다). 인증 없음(127.0.0.1 바인딩 전제).
 - NAS(CPU 프로파일)는 이 PC 에서 CPU 프로파일로만 시험했고 실제 NAS 배포/실측은 하지 않았다.
+
+## 21. 방송 자신 풀 제외, 나나 승격, likely, 여유 규칙, review 전체 완성본 (2026-10-26)
+
+- 누수 제거: NAS 슬러그(YYYY-MM-DD_이름_n)의 (스트리머, 날짜)와 같은 풀 항목은 장면 기준/다중 참조에서 뺀다(`scene_pool.excluder("date", ...)`, `pool()` 이 항목마다 date 를 채움, `pipeline.py` 4_scene 단계). 나나 10-06 의 review 12개가 '정지 화면 0.000' 이던 원인(자기 방송 정답 프레임)이 사라졌고, 자기 방송을 뺀 나나/토아 10-24 는 기준 이력 부족이라 '새 채널' review 가 된다. 토아 10-24 싱크룸 auto 9곡은 이 때문에 review 로 내려갔다(사용자 규칙상 정상 라이브지만 NAS 시간축 정답이 없어 known_pos 로 못 올림). 영상번호 방송(VOD)은 기존 동작 그대로. `datasets/reroute_nas.py` 는 풀에 같은 스트리머+날짜가 있는 방송만 4_scene 을 지운다(`--all` 이면 전부).
+- 나나 known_pos: data/refs.json 은 legacy wav 시간축이고 data/vod/nas/<슬러그>.wav 는 그 파일의 하드링크(inode 동일, 오프셋 0). `cache/exp15/mk_approved.py` 가 videoNo 자리에 슬러그 문자열을 넣은 항목을 추가(route.known_pos 는 str 비교라 코드 변경 불필요). 승인 경계와 후보 경계가 10초 넘게 어긋나면 auto 가 아니라 review(근거 코드 BD)로 남기고 `ref_bd` 를 카드에 기록.
+- likely: `route.mark_likely`(review, multi==live, 125~340초, 5분 이후, 1시간 안 후보 20개 미만). `scene_pool.py eval broadcast` 끝에 정밀도 집계가 붙는다(blind5/6: 25/25, 합산 blind5/6/7/8: 28/29 = 97% [Wilson 83-99%], 오탐 7A 후야 게임 중 따라 부르기 1개). 카드에 `likely` 표시만 하고 별도 폴더는 만들지 않는다(make_final `--likely`, `--no-ctx` 옵션은 남겨 둠).
+- 완성본 규칙 v2-pad(`make_final.RULE`, json.rule 이 다르면 재생성): 곡 시작 앞 2초 안의 마지막 말소리 뒤 공백 중 가장 긴 것의 시작+50ms 에서 진입(0.3초 미만이면 여유 없음), 끝 뒤 2초 안의 첫 말소리 앞 공백 중 가장 긴 것의 가운데에서 종료, 끝 여유가 0.8초 이상이면 곡 끝부터 페이드. 후보 공백 목록/선택/실제 여유는 json 의 lead/trail. 인코딩 사이에 인코딩 시간의 25% 휴지(nvenc 약 80%).
+- 산출: out/final(auto), out/final_review(review, 파일명 끝 _R_코드[-L]), out/final_optional(optional, 현재 0개). `python datasets/final_nas.py auto review optional`, 점검과 INDEX 는 `python datasets/index_final.py`(out/final/INDEX.md). review 곡당 약 2.3분(HTTP TS 시킹+디코드 병목, nvenc 사용률 8%): 104곡 약 4시간.
+- 한계: 공백 판정은 snap.quiet 기준(곡 중앙값보다 25dB 낮음 + Speech<0.3)이라 배경음이 큰 방송은 여유가 0 이 된다(117곡 중 앞 57, 뒤 75곡). 앞 곡 소리 조각은 말소리만 가려낸다. likely 표본은 사전 선별된 블라인드 세트라 낙관적.
+
+## 22. 세션 마감 인계 (2026-10-26) - 새 세션은 이 절부터 읽는다
+
+### 현재 상태
+- 분석기: 상주 컨테이너 `song-analyzer`(GPU, restart unless-stopped, 127.0.0.1:8765, `python analyzer_client.py` 로 확인). 재부팅 후 Docker Desktop 이 켜지면 자동 복구. pipeline.py 는 서비스를 쓰고 실패하면 `docker run` 폴백. 리소스 상한은 항상 80%(limits.py, 사용자 요구: CPU/GPU/네트워크).
+- NAS 10월 녹화(61방송, 338h)는 PC 에서만 처리했다(NAS 는 원본 읽기 API 만). 결과 out/<슬러그>/, 카드 out/<슬러그>/cards/*.json.
+- 완성본 클립(규칙 v3-pad: 시작 앞 최대 2초/끝 뒤 최대 2초의 가장 긴 음성 없는 공백, 끝 0.8초 페이드, 리미터 -1dBFS): `out/final/`(auto 13곡 47.9분, 정식), `out/final_review/`(review 104곡, 사용자가 직접 듣고 판단하는 미검증 클립), `out/final_optional/`(피아노 의심, 현재 0). 목록 `out/final/INDEX.md`(스트리머/방송/곡/여유/근거), `data/nas_review_list.md`. v3 여유 분포: 앞 평균 0.88초(0초 32곡, 0~1초 38, 1~2초 47), 뒤 평균 0.45초(0초 34, 0~1초 80, 1~2초 3). 117곡 점검 전부 ok(컷 오차 0.1초 이내, A/V 싱크).
+- 속도: 완성본 인코딩은 NVDEC+nvenc p3 로 곡당 약 30초(이전 2.3분: `-readrate` 가 처리를 3배 늦췄던 것이 원인, 제거).
+- 정리 대기(삭제하지 않음): `out/stale_not_v3.txt`(이전 규칙 json 70개 목록, 같은 곡의 새 파일과 이름이 달라 중복으로 남음), `out/final_test/`(1.5GB 시험 산출물), `out/review/`(옛 미리보기 3.9GB), 낡은 NAS 미리보기 36개.
+- 재개: `python datasets/final_nas.py auto review` (멱등, 끝난 곡은 건너뜀). 전체 재계산: `python datasets/reroute_nas.py` 후 필요 시 pipeline `--force`.
+
+### 사용자가 곧 할 일(결과가 오면 반영)
+- review 104곡(방송 시간순)을 직접 듣고 판정할 예정. 판정(라이브/아님/경계)이 오면: 라이브는 `data/approved.json` 승인 + `python scene_pool.py build`(채널 승인 이력 축적, 새 채널 auto 해금), 아님은 `data/known_negatives.json` 등록, 유형이 모이면 규칙화, 경계 지적은 snap.py/make_final.py 여유 규칙에 반영, labels.py BLIND9 로 기록 후 `eval_blind.py` 재평가. 사람 검수 요청은 최소화(사용자가 지침을 줌: 정말 판단이 안 되는 것 최대 10개, 풀영상 맥락, 파일 수=질문 수).
+
+### 남은 개선 후보(우선순위순)
+1. 여유 0초 곡(앞 32, 뒤 34) 원인 점검: 음성 없음 기준(Speech<0.3, Singing 낮음)이 배경음/게임 소리에서 안 맞는 곳. 사용자가 들어 본 피드백으로 기준 보정.
+2. 토아 10-24 싱크룸 14곡은 승인 이력 누수 제거로 review 에 있음(싱크룸은 가창자 무관 정상 라이브). 사용자 판정 후 approved 로.
+3. 나나 정답 6곡은 경계가 10초 넘게 어긋나 review(BD): 4:00 A.M. 끝 +82초, 야상곡 끝 -48초, Mama Lisa 시작 +31초 등. 후보 쪽/정답 쪽 중 어느 쪽이 맞는지 사용자 청취로 확인.
+4. 미탐: 90초 미만 랩(YAMNet 이 Speech 로 읽음), 나나 정답 5곡 후보 없음. 연습/1절/게임 중 우발 가창은 known_neg 로만 대응.
+5. NAS 배포(CPU 프로파일 compose 는 PC 에서만 시험, 실제 NAS 미배포), 녹화기와의 통합, 유튜브 업로드는 범위 밖(HANDOFF 6번 8항).
+6. lead_in.py(카운트인 시작 보정, Q2 한 곡 근거)는 비활성: 연결 방법은 HANDOFF 17~18번.
+
+### 주의
+- git: `git commit -a` 금지(스테이징된 무관 삭제 60개가 섞임). 파일을 지정해 `git commit --only`. tools/song-detect 외 변경은 이 작업과 무관.
+- 도커 -v 명령은 git bash 에서 `MSYS_NO_PATHCONV=1` 필수(없으면 `detect.py;C` 같은 빈 폴더 생성).
+- 에이전트를 돌릴 때 GPU 작업이 겹치지 않게(80% 상한, 동시 GPU 작업 1개), `docker stop` 은 이름을 지정해서만.
+- 메모리: project_live_song_clip_detection, feedback_limit_user_review_burden, feedback_resource_cap_80pct, feedback_bulk_download_network_etiquette.

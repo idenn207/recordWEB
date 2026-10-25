@@ -173,7 +173,7 @@ def summary():
         for t in tot:
             tot[t] += cnt[t]
         out[r["slug"]] = dict(streamer=r["streamer"], date=r["date"], title=r["title"], dur=r["dur"], category=category(r["title"]), tiers=cnt, timing=json.load(open(done)),
-                              cands=[dict(idx=c["idx"], start=c["start"], end=c["end"], len=c["len"], tier=c["tier"], why=c["tier_why"], clip=c["clip"]) for c in cs])
+                              cands=[dict(idx=c["idx"], start=c["start"], end=c["end"], len=c["len"], tier=c["tier"], likely=c.get("likely", False), why=c["tier_why"], clip=c["clip"]) for c in cs])
     d = dict(total=tot, n_done=len(out), n_total=len(rows), failed=fails, bytes_wav=sum(f.stat().st_size for f in NASDIR.glob("*.wav")), broadcasts=out)
     (ROOT / "cache/nas_summary.json").write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf8")
     print(tot, "처리", len(out), "/", len(rows), "실패", len(fails))

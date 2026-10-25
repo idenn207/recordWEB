@@ -7,7 +7,7 @@
   (detect 내부 캐시 cache/detect 의 YAMNet/Demucs 점수는 그대로 재사용: 지우려면 cache/detect/<이름>.* 를 직접 삭제).
 승인 클립을 기준 풀에 넣기: data/review/<세트>/ 에 클립+라벨을 두고 `python scene_pool.py build` 후 --force 로 다시 실행(4_scene.json 이 풀에 의존).
 shortcut: 장면 기준 풀 SETS(blind5, blind6)와 known_negatives 는 전역, 클립은 보정 없이 최종 start~end 그대로(앞뒤 패딩 없음)."""
-import glob, json, os, shutil, subprocess, sys
+import glob, json, os, re, shutil, subprocess, sys
 from collections import Counter
 from pathlib import Path
 
@@ -23,7 +23,7 @@ def card(g, i, clip=None):
     """증거 카드: 최종 구간, 등급과 이유, 장면 판정, 경계 보정 전(detect)/refine 후/finalize 후, 신호 요약."""
     return dict(
         idx=i, start=g["start"], end=g["end"], len=g["len"], tier=g["tier"], tier_why=g["tier_why"],
-        scene=g.get("scene"), multi=g.get("multi"), multi_why=g.get("multi_why"),
+        scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
         boundary=dict(detect=[g.get("start0", g["start"]), g.get("end0", g["end"])], refine=[g.get("start1", g["start"]), g.get("end1", g["end"])], final=[g["start"], g["end"]],
                       why_snap=g.get("why_snap")),
         signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk")}, clip=clip)
@@ -84,8 +84,10 @@ def main(wav, video, vid, name, force, outroot):
         from scene import thumbs, dist
         from scene_multi import classify, feats
         meta, F = scene_pool.pool()
-        LIVEP, NEGP = (scene_pool.cat(meta, F, lambda m: True)[g] for g in ("live", "neg"))
-        R = scene_pool.cat(meta, F, lambda m: m["name"] == name)["live"] if name and scene_pool.eligible(meta, name) else None   # 승인 이력 부족(5곡/2방송 미만)이면 새 채널 취급
+        day = re.match(r"\d{4}-\d{2}-\d{2}(?=_)", vid)           # NAS 슬러그(YYYY-MM-DD_이름_n)면 풀에서 같은 스트리머+날짜(=이 방송 자신)를 뺀다: 자기 프레임과 비교하는 누수(거리 0.000) 방지. shortcut: 영상번호 방송은 기존 그대로
+        keep = scene_pool.excluder("date", dict(name=name, date=day[0]), meta) if day and name else (lambda m: True)
+        LIVEP, NEGP = (scene_pool.cat(meta, F, keep)[g] for g in ("live", "neg"))
+        R = scene_pool.cat(meta, F, lambda m: keep(m) and m["name"] == name)["live"] if name and scene_pool.eligible(meta, name, keep) else None   # 승인 이력 부족(5곡/2방송 미만)이면 새 채널 취급
         segs = [g for g in json.load(open(f3, encoding="utf8")) if g["keep"]]
         for s in segs:
             fr = thumbs(video, s["start"], s["end"]) if video else np.zeros((0, 1), np.float32)
@@ -94,17 +96,19 @@ def main(wav, video, vid, name, force, outroot):
             s["scene"] = dist(fr, R) if R is not None else None
         f4.write_text(json.dumps(dict(has_refs=R is not None, segs=segs), ensure_ascii=False, indent=1), encoding="utf8")
     sc = json.load(open(f4, encoding="utf8"))
-    from route import tier, known_neg, known_pos
+    from route import tier, known_neg, known_pos, mark_likely
     segs = sc["segs"]
     import piano_gate
     piano_gate.annotate(vid, segs)                               # cache/exp12p/other.json 이 있을 때만 g['piano'] 표시(선택)
     (O / "cards").mkdir(exist_ok=True)
     for old in (O / "cards").glob("*.json"):
         old.unlink()
-    for i, g in enumerate(segs, 1):
+    for g in segs:
         g["tier"], g["tier_why"] = tier(g, sc["has_refs"])
         known_pos(vid, g)                                       # 사용자 승인/사람 검수 구간은 auto, 그 뒤 비대상 확인이 이기게 한다
         known_neg(vid, g)
+    mark_likely(segs)                                           # 등급 확정 뒤(몰림 판정에 방송 전체 후보가 필요)
+    for i, g in enumerate(segs, 1):
         clip = None
         if g["tier"] in ("auto", "review", "optional"):
             d = O / "clips" if g["tier"] == "auto" else O.parent / g["tier"] / vid          # optional = 피아노 연주 의심(별도 옵션 대상)

@@ -44,6 +44,16 @@ def tier(g, has_refs, p=P):
     return "auto", ""
 
 
+def mark_likely(segs, p=P, n_max=20, win=3600):
+    """'유력(likely)' 표시(등급은 review 그대로, 사람 검수 전 미검증): review 이고 다중 참조가 live, 길이 125~340초, 방송 시작 5분 이후,
+    한 방송에서 곡 후보(keep)가 win 초 안에 n_max 개 이상 몰린 구간에 속하지 않음. known_neg/piano 는 이미 drop/optional 이라 걸러진 뒤에 부른다.
+    shortcut: 근거는 blind5/6/8 표본(scene_pool.py eval 의 likely 집계)뿐, 새 채널 표본이 쌓이면 재보정"""
+    ts = [x["start"] for x in segs if x["keep"]]
+    for g in segs:
+        dense = any(sum(a <= t < a + win for t in ts) >= n_max for a in ts if a <= g["start"] < a + win)
+        g["likely"] = bool(g.get("tier") == "review" and g.get("multi") == "live" and p["len_lo"] <= g["len"] <= p["len_hi"] and g["start"] >= p["wait_s"] and not dense)
+
+
 def known_neg(vid, g, path="data/known_negatives.json"):
     """사용자가 '클립 대상 아님'으로 확인한 구간(영상번호, 시작/끝초)과 절반 이상 겹치면 drop. 오디오·장면으로 못 거르는 유형(게임 중 우발적 가창 등)용 임시 방어.
     shortcut: 확인된 사례만 막는다, 같은 유형이 쌓이면 규칙(특징)으로 일반화"""
@@ -59,6 +69,7 @@ def known_neg(vid, g, path="data/known_negatives.json"):
 def known_pos(vid, g, path="data/approved.json"):
     """사용자 승인/사람 검수(재생목록 위치 정답) 라이브 구간과 절반 이상 겹치는 review/optional 후보는 auto (이미 사람이 확인한 곡이라 다시 검수 불필요). drop 은 유지.
     known_neg 보다 먼저 부른다(둘이 겹치면 비대상이 이긴다). 목록은 cache/exp15/mk_approved.py 가 만든다.
+    승인 경계와 후보 경계 차이는 ref_bd 로 남긴다(등급은 겹침만 본다).
     shortcut: 영상번호+구간 일치만 본다(같은 방송 다시 탐지에서 경계가 조금 달라도 절반 겹침이면 됨), 새 방송에는 도움 안 됨"""
     from pathlib import Path
     if not g["keep"] or g.get("tier") not in ("review", "optional") or not Path(path).exists():
@@ -66,7 +77,11 @@ def known_pos(vid, g, path="data/approved.json"):
     for k in json.load(open(path, encoding="utf8")):
         ov = min(g["end"], k["end"]) - max(g["start"], k["start"])
         if str(k["videoNo"]) == str(vid) and ov >= 0.5 * min(g["end"] - g["start"], k["end"] - k["start"]):
-            g["tier"], g["tier_why"] = "auto", "승인된 라이브: " + k["src"]
+            g["ref_bd"] = bd = [round(g["start"] - k["start"], 1), round(g["end"] - k["end"], 1)]   # 후보 경계 - 승인 경계(초)
+            if max(map(abs, bd)) > 10:                       # 라이브인 건 확인됐지만 곡 일부가 잘리거나 앞뒤 말이 붙음: auto 로 올리지 않고 review 에 남겨 사람이 듣게 한다
+                g["tier_why"] = f"승인 라이브지만 경계 어긋남 {bd[0]:+.0f}/{bd[1]:+.0f}초"
+            else:
+                g["tier"], g["tier_why"] = "auto", "승인된 라이브: " + k["src"]
             return
 
 
