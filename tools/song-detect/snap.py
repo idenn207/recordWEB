@@ -87,11 +87,43 @@ def lead_start(pcm, a, s, ref_db):
     return st if (seg[:, 0] + seg[:, 2]).mean() >= EXT_MU else s      # 늘린 구간이 음악/노래가 아니면(말·잡음) 늘리지 않음
 
 
+B_DB, B_GAP, B_TAIL, B_FWD, B_SP, B_ITER, B_MAXLEN = 6.0, 4.0, 2.5, 15.0, 2, 4, 360.0   # 끝 이음: 절벽 직후 1초 에너지 하한(곡 중앙값 대비 -dB), 음악 사이 최대 틈, 마지막 음악 뒤 여유, 탐색 범위(초), 말 연속 중단(홉)
+
+
+def bridge(pcm, a, ref, c):
+    """_bridge 를 끝이 더 안 움직일 때까지(최대 B_ITER 번, 한 번에 B_FWD 초) 되풀이한다: 하락 뒤 음악이 15초 넘게 이어지는 곡도 따라간다(표본: 토아 3122 가 3번 필요, 4번 안에 안 멈추면 포기)."""
+    c0 = c
+    for _ in range(B_ITER):
+        c2 = _bridge(pcm, a, ref, c)
+        if c2 <= c:
+            return c
+        c = c2
+    return c0                                           # 계속 이어지기만 하면 음악 연속(BGM 등)일 수 있어 믿지 않는다
+
+
+def _bridge(pcm, a, ref, c):
+    """절벽 c 가 곡 중간의 짧은 Music 하락(소리는 곡 수준으로 이어짐)이면 그 뒤 음악(Music>=0.5, Speech<0.3)이 B_GAP 초 이내 틈으로 이어지는 마지막 지점 + B_TAIL 로 끝을 옮긴다.
+    진짜 끝은 절벽 직후 소리가 곡 중앙값보다 크게 줄어(표본 8개: 끝 -11~-43dB, 하락 +1~+2dB) 옮기지 않는다. 말이 B_SP 홉 이어지면 거기서 멈춘다.
+    shortcut: 임계값 -6dB 는 하락 2개/끝 6개 표본 근거(나나 10-06 ong, 토아 Q4), 곡 직후 같은 음량의 박수/노래가 이어지는 경우는 못 거른다."""
+    if np.median(rms_db(pcm, c, c + 1)[1]) < ref - B_DB:
+        return c
+    i0, last, sp = int(c / HOP), None, 0
+    for i in range(i0, min(i0 + int(B_FWD / HOP), len(a))):
+        sp = sp + 1 if a[i, 1] >= 0.3 else 0
+        if sp >= B_SP or (i - (i0 if last is None else last)) * HOP > B_GAP:
+            break
+        if a[i, 2] >= 0.5 and a[i, 1] < 0.3:
+            last = i
+    return c if last is None else max(c, last * HOP + B_TAIL)
+
+
 def snap(pcm, a, s, e):
     _, db = rms_db(pcm, s, e)
     ref = float(np.median(db))
     c = cliff(a, e - BACK, e + FWD)
-    e2 = c if c is not None else e
+    e2 = bridge(pcm, a, ref, c) if c is not None else e
+    if c is not None and e2 > c and e2 - s > B_MAXLEN:                               # detect.P max_len_s: 이어 붙여 곡이 6분을 넘으면 이음을 믿지 않고 원래 절벽 유지
+        e2 = c
     q = quiet(pcm, a, ref, e2 - 1, e2 + MARGIN)         # 끝: 음악 끝 앞 1초~뒤 2초 안에서 가장 이른 무음
     if len(q):
         e2 = float(q[0])
@@ -124,6 +156,14 @@ def selftest():
     b[40:60, 2] = 0.0                                   # 20~30초에 10초 틈, 뒤에 170초
     assert trim_front(b, 0, 200) == 30.0
     assert trim_front(b, 0, 200, gap=12) == 0
+    sr, pcm = 16000, np.zeros(16000 * 100, np.int16)
+    pcm[:sr * 60] = 3000                                # 0~60초 소리(곡 수준)
+    d = np.zeros((200, 3), np.float32)
+    d[:, 2] = 0.9
+    d[80:86, 2] = 0.0                                   # 40~43초 Music 하락, 소리는 계속
+    assert bridge(pcm, d, -20.0, 40.0) > 58             # 하락 뒤 소리가 이어지는 곳까지 따라감
+    pcm[sr * 40:sr * 45] = 0                            # 같은 자리가 무음이면 진짜 끝: 옮기지 않음
+    assert bridge(pcm, d, -20.0, 40.0) == 40.0
     print("selftest ok")
 
 
