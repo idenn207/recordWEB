@@ -2,6 +2,7 @@
 입력은 detect -> scene 을 거친 segments.json(각 구간의 scene 거리, 같은 채널 기준 프레임 유무).
   drop   : 오디오 게이트 실패(keep=False), 또는 장면 거리가 drop 임계 초과(같이 보기/영상 시청/콘서트 화면)
   review : 같은 채널 기준 프레임이 없음, 장면이 애매함, 길이가 1절/짧은 랩(90~125초)이거나 6분 근처, 장면 거리를 못 읽음
+  optional: 피아노 연주 의심(직접 연주 라이브는 실수가 기본이라 기본 클립/검증 세트에서 분리, 별도 옵션 대상. 피아노 MR 에 부른 일반 라이브와 오디오로 구분 어려움)
   auto   : 위에 해당하지 않음 (125~340초, 같은 채널 장면과 거의 같음)
 임계값 근거: 블라인드 검토(2026-10-24)에서 auto 6개 중 대기 화면 3개가 장면 거리 0.010 이었고 진짜 라이브는 0.059~0.073 이라 0.03 미만은 review.
 기존 근거: 같은 채널 기준에서 확인된 라이브 <=0.07, 콘서트/따라 부르기/같이 보기 >=0.08 (마시로, 후야, 나나 3채널).
@@ -19,10 +20,10 @@ def tier(g, has_refs, p=P):
     m = g.get("multi")                                   # scene_multi.classify 결과(선택). idle/watch 는 레이아웃 근거라 채널 기준 없이도 drop
     if m in ("idle", "watch"):
         return "drop", f"다중 참조: {m}"
-    if g.get("piano"):                                   # piano_gate.annotate 가 채운 경우만(없으면 기존 동작). 피아노 연주 의심: 보컬 스템 낮고 other 높음
-        return "drop", f"피아노 연주 의심(vocal {g.get('vocal')}, other {g.get('other')})"
     if g.get("start", 1e9) < p["wait_s"]:
         return "drop", "방송 시작 대기시간(앞 5분)"
+    if g.get("piano"):                                   # piano_gate.annotate 가 채운 경우만(없으면 기존 동작). 피아노 직접 연주/피아노 MR 의심: 보컬 스템 낮고 other 높음
+        return "optional", f"피아노 연주 의심(vocal {g.get('vocal')}, other {g.get('other')})"   # 직접 연주 라이브는 선택 대상(기본 클립/검증 제외), MR 반주면 일반 라이브라 사람이 승격
     d = g.get("scene")
     if has_refs and d is not None and d > p["scene_drop"]:
         if m in ("live", "unknown"):                     # 게임 레이아웃이 바뀌면 같은 채널 기준과 멀어진다(마시로 정답 라이브 0.27~0.29). 다중 참조가 watch/idle 로 확정하지 않으면 버리지 않는다

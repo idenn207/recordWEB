@@ -44,6 +44,7 @@ def main(wav, video, vid, name, force, outroot):
     if force:
         shutil.rmtree(O, ignore_errors=True)
         shutil.rmtree(O.parent / "review" / vid, ignore_errors=True)
+        shutil.rmtree(O.parent / "optional" / vid, ignore_errors=True)
     O.mkdir(parents=True, exist_ok=True)
     f1, f2, f3, f4 = (O / n for n in ("1_detect.json", "2_refine.json", "3_final.json", "4_scene.json"))
     mount = ["-v", f"{wav.parent}:/work/in:ro", "-v", f"{O}:/work/o"]
@@ -88,8 +89,8 @@ def main(wav, video, vid, name, force, outroot):
         g["tier"], g["tier_why"] = tier(g, sc["has_refs"])
         known_neg(vid, g)
         clip = None
-        if g["tier"] in ("auto", "review"):
-            d = O / "clips" if g["tier"] == "auto" else O.parent / "review" / vid
+        if g["tier"] in ("auto", "review", "optional"):
+            d = O / "clips" if g["tier"] == "auto" else O.parent / g["tier"] / vid          # optional = 피아노 연주 의심(별도 옵션 대상)
             d.mkdir(parents=True, exist_ok=True)
             clip = d / f"{hms(g['start'])}{'.mp4' if video else '.m4a'}"
             if not clip.exists():
