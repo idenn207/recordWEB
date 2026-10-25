@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir numpy ai-edge-litert soundfile \
  && pip install --no-cache-dir torch torchaudio --index-url ${TORCH_INDEX} \
  && pip install --no-cache-dir demucs speechbrain librosa
 WORKDIR /work
-COPY detect.py yamnet_backend.py paths.py models ./
+COPY detect.py yamnet_backend.py paths.py limits.py models ./
 ENV TORCH_HOME=/work/cache/.torch
 ENTRYPOINT ["python", "detect.py"]

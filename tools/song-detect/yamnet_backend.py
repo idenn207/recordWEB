@@ -13,6 +13,10 @@ HERE = Path(__file__).parent
 MODELS = HERE / "models" if (HERE / "models").exists() else HERE
 BATCH = 256                       # GPU 한 번에 묶는 창 수
 _cache = {}
+try:
+    from limits import frac        # 80% 상한의 단일 정의 (옛 마운트에 limits.py 가 없으면 0.8)
+except ImportError:
+    frac = lambda: 0.8
 
 
 def resolve(device=None):
@@ -32,7 +36,7 @@ def gpu_init():
     """VRAM 을 SONG_GPU_MEM 비율(기본 0.8)로 제한. 프로세스당 한 번."""
     if "gpu_init" not in _cache:
         import torch
-        torch.cuda.set_per_process_memory_fraction(min(1.0, float(os.environ.get("SONG_GPU_MEM", 0.8))))
+        torch.cuda.set_per_process_memory_fraction(min(1.0, float(os.environ.get("SONG_GPU_MEM") or frac())))
         _cache["gpu_init"] = 1
 
 
@@ -40,7 +44,7 @@ def gpu_rest(t0):
     """배치 하나를 t0 에 시작해 끝낸 뒤 가동률이 SONG_GPU_LIMIT(기본 0.8)을 넘지 않게 쉰다. shortcut: 배치 단위 듀티라 순간 사용률은 100% 일 수 있다."""
     import torch
     torch.cuda.synchronize()
-    lim = min(1.0, max(0.05, float(os.environ.get("SONG_GPU_LIMIT", 0.8))))
+    lim = min(1.0, max(0.05, float(os.environ.get("SONG_GPU_LIMIT") or frac())))
     if lim < 1:
         time.sleep((time.time() - t0) * (1 / lim - 1))
 

@@ -197,7 +197,7 @@ def _vocal_job(a):
     return vocal_ratio(wav, s0, e0, p, dev).tolist()
 
 
-def detect(wav: Path, force=False, p=P, device=None):
+def detect(wav: Path, force=False, p=P, device=None, in_process=False):
     a = scores(wav, force, device, int(p["yamnet_workers"]) or min(4, os.cpu_count() or 1))
     cache_f = cache_of(wav, ".vocal.json")
     cache = json.loads(cache_f.read_text()) if cache_f.exists() and not force else {}
@@ -209,8 +209,17 @@ def detect(wav: Path, force=False, p=P, device=None):
     gpu = dev == "cuda"
     if todo:  # Demucs 가 병목: 후보는 서로 독립이라 CPU 에서는 프로세스 풀로 (shortcut: 이 PC 실측 ~1.6배, 메모리 대역폭에 막힘), GPU 는 한 프로세스
         th = max(1, (os.cpu_count() or 8) // int(p["workers"]))
-        with ProcessPoolExecutor(1 if gpu else int(p["workers"]), mp_context=multiprocessing.get_context("spawn")) as ex:
-            for c, r in zip(todo, ex.map(_vocal_job, [(wav, c[2], c[3], p, th, dev) for c in todo])):
+        if in_process:     # 상주 서비스: 후보마다 프로세스를 띄워 모델을 다시 올리지 않고 이미 올라간 Demucs 로 (CPU 는 스레드 병렬, torch 가 GIL 을 놓는다)
+            import torch
+            from concurrent.futures import ThreadPoolExecutor
+            torch.set_num_threads(max(1, int(os.environ.get("SONG_THREADS") or th)))
+            ex, mapf = ThreadPoolExecutor(1 if gpu else int(p["workers"])), lambda c: vocal_ratio(wav, c[2], c[3], p, dev).tolist()
+            it = ex.map(mapf, todo)
+        else:
+            ex = ProcessPoolExecutor(1 if gpu else int(p["workers"]), mp_context=multiprocessing.get_context("spawn"))
+            it = ex.map(_vocal_job, [(wav, c[2], c[3], p, th, dev) for c in todo])
+        with ex:
+            for c, r in zip(todo, it):
                 cache[f"{c[2]}-{c[3]}"] = r
                 cache_f.write_text(json.dumps(cache))
                 print(f"  cand {hms(c[0])}-{hms(c[1])} done", file=sys.stderr, flush=True)

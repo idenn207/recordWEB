@@ -1,13 +1,16 @@
 """치지직 다시보기(공개)의 오디오 전용 스트림(128kbps m4a)을 Range 요청으로 받아 data/vod/<videoNo>.wav (16kHz mono) 로 만든다.
-네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 45MB/s ~ 360Mbps(사용자 회선 500Mbps, 다른 네트워크 작업이 없을 때 한도 해제 허용), 연결 24개(연결당 속도가 낮아 연결 수가 처리량을 정함)). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
+네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 limits.net_MBps("internet") = 회선 500Mbps 의 80% = 50MB/s, 한도 해제는 사용자 허용이 있을 때만 인자로, 연결 24개(연결당 속도가 낮아 연결 수가 처리량을 정함)). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
 64kbps 인 144p 영상의 오디오로는 탐지 결과가 달라져서(후보 12 -> 13) 오디오 전용 스트림을 쓴다.
-사용: python fetch_vod.py <videoNo> [속도 MB/s=45] [연결수=24]"""
+사용: python fetch_vod.py <videoNo> [속도 MB/s=50] [연결수=24]"""
 import json, re, subprocess, sys, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import limits
+
 vid = sys.argv[1]
-RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else 45e6      # 바이트/초, 모든 연결의 합
+RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else limits.net_MBps("internet") * 1e6      # 바이트/초, 모든 연결의 합
 n = int(sys.argv[3]) if len(sys.argv) > 3 else 24
 UA = {"User-Agent": "Mozilla/5.0"}
 D = Path("data/vod")

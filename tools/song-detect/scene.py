@@ -1,12 +1,13 @@
 """장면 게이트: KEEP 후보의 키프레임 썸네일이 '라이브 노래 장면' 기준 프레임과 비슷해야 통과 (같이 보기/영상 시청 화면을 거른다).
 기준 프레임 = 확인된 라이브 구간(data/refs.json)의 썸네일. 기준이 없는 채널은 호출하지 말고 검토 대기로 보낸다.
 사용: python scene.py <날짜> <채널명 일부> <기준 날짜,...> <segments.json 입력> <출력>  [thr=0.18] [refs=<json: [{date,start,end}]>]"""
-import json, subprocess, sys, urllib.parse, urllib.request
+import json, os, subprocess, sys, urllib.parse, urllib.request
 from pathlib import Path
 import numpy as np
 
 API = "http://192.168.0.10:5080/api/files"
 W, H = 48, 27
+_cf = dict(creationflags=0x4000) if os.name == "nt" else {}       # 낮은 우선순위(BELOW_NORMAL): 사용자가 같은 PC 로 다른 작업을 한다
 q = lambda p: urllib.parse.quote(p, safe="")
 
 
@@ -23,8 +24,8 @@ def thumbs(url, s, e):
     """[s,e) 초의 키프레임을 48x27 회색으로. 키프레임만 디코딩하므로 1080p60 도 수 초면 된다.
     원격 파일이 응답 없이 멈추는 경우가 있어 읽기 제한(rw_timeout)과 전체 타임아웃을 두고, 실패하면 빈 배열(= 장면을 못 읽음)을 돌려준다."""
     try:
-        raw = subprocess.run(["ffmpeg", "-v", "error", "-rw_timeout", "15000000", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), "-i", url, "-an",
-                              "-vf", f"scale={W}:{H},format=gray", "-fps_mode", "vfr", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=60).stdout
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-threads", "2", "-rw_timeout", "15000000", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), "-i", url, "-an",
+                              "-vf", f"scale={W}:{H},format=gray", "-fps_mode", "vfr", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=60, **_cf).stdout
     except (subprocess.SubprocessError, OSError):
         return np.zeros((0, W * H), np.float32)
     return np.frombuffer(raw, np.uint8).reshape(-1, W * H).astype(np.float32) / 255

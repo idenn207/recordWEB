@@ -1,0 +1,37 @@
+# 상주 분석기 (analyzer_server.py). 프로젝트 폴더 전체를 /work 로 마운트하므로 코드를 고쳐도 이미지를 다시 빌드하지 않는다(컨테이너만 재시작).
+# PC(GPU):  docker compose -f docker-compose.analyzer.yml --profile gpu up -d     (이미지 song-detect-gpu)
+# NAS(CPU): SONG_CPU_LIMIT=$(python3 limits.py cpus) docker compose -f docker-compose.analyzer.yml --profile cpu up -d   (이미지 song-detect)
+# 시험용: SONG_ANALYZER_NAME=song-analyzer-dev SONG_PORT=8766 docker compose -p song-analyzer-dev -f ... --profile gpu up -d
+# 상한 80%: cpus=SONG_CPU_LIMIT(논리 코어의 80%), GPU 가동률/VRAM 은 서버가 limits.py 로 설정, 메모리 10g. 포트는 127.0.0.1 에만 연다.
+x-common: &common
+  container_name: ${SONG_ANALYZER_NAME:-song-analyzer}
+  entrypoint: ["python", "analyzer_server.py"]
+  working_dir: /work
+  restart: unless-stopped
+  ports: ["127.0.0.1:${SONG_PORT:-8765}:8765"]
+  volumes: [".:/work"]
+  mem_limit: 10g
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8765/health', timeout=5)"]
+    interval: 30s
+    timeout: 10s
+    start_period: 120s
+    retries: 3
+
+services:
+  analyzer-gpu:
+    <<: *common
+    profiles: ["gpu"]
+    image: ${SONG_IMAGE:-song-detect-gpu}
+    cpus: ${SONG_CPU_LIMIT:-16}
+    environment: [SONG_DEVICE=auto, "SONG_LIMIT_PCT=${SONG_LIMIT_PCT:-80}", "SONG_GPU_LIMIT=${SONG_GPU_LIMIT:-}"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: all, capabilities: [gpu]}]
+  analyzer-cpu:
+    <<: *common
+    profiles: ["cpu"]
+    image: song-detect
+    cpus: ${SONG_CPU_LIMIT:-4}
+    environment: [SONG_DEVICE=cpu, "SONG_LIMIT_PCT=${SONG_LIMIT_PCT:-80}", "SONG_JOBS=${SONG_JOBS:-1}"]

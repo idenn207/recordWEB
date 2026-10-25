@@ -60,10 +60,8 @@ def refine(pcm, s, e, win=8.0, bias_start=0.3, bias_end=1.6, device=None):   # �
     return (ns + bias_start if ns is not None else s), (ne + bias_end if ne is not None else e)
 
 
-if __name__ == "__main__":
-    wav, seg_in, seg_out = sys.argv[1:4]
-    kw = {k: float(v) for k, v in (a.split("=") for a in sys.argv[4:] if not a.startswith("device="))}
-    kw.update({a[:6]: a[7:] for a in sys.argv[4:] if a.startswith("device=")})
+def refine_file(wav, seg_in, seg_out, **kw):
+    """segments.json 의 KEEP 구간 경계를 재분석해 seg_out 에 쓴다 (CLI 와 analyzer_server 가 같이 쓴다)."""
     with open(wav, "rb") as f:
         off = f.read(4096).find(b"data") + 8
     pcm = np.memmap(wav, dtype="<i2", mode="r", offset=off)
@@ -74,3 +72,10 @@ if __name__ == "__main__":
             g["start"], g["end"] = refine(pcm, g["start"], g["end"], **kw)
             g["len"] = g["end"] - g["start"]
     json.dump(segs, open(seg_out, "w", encoding="utf8"), ensure_ascii=False, indent=1)
+
+
+if __name__ == "__main__":
+    wav, seg_in, seg_out = sys.argv[1:4]
+    kw = {k: float(v) for k, v in (a.split("=") for a in sys.argv[4:] if not a.startswith("device="))}
+    kw.update({a[:6]: a[7:] for a in sys.argv[4:] if a.startswith("device=")})
+    refine_file(wav, seg_in, seg_out, **kw)
