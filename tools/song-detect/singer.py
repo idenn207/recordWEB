@@ -3,7 +3,7 @@
 프로필 = 같은 스트리머의 다른 방송(videoNo/date)의 라이브 구간 임베딩 평균(같은 방송은 제외: 마이크/믹스 누수 방지).
 표본: blind5+blind6 라벨(labels.json)과 나나 정답(refs.json, 1절 제외; 탐지 KEEP 중 정답/EXTRA 밖은 오탐으로 봄).
 사용(도커 GPU, 스템/임베딩은 cache/exp_singer 에 캐시):
-  docker run --rm --gpus all -e TORCH_HOME=/work/cache/.torch -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/singer.py:/work/singer.py" --entrypoint python song-detect-gpu singer.py build
+  MSYS_NO_PATHCONV=1 docker run --rm --gpus all -e TORCH_HOME=/work/cache/.torch -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/singer.py:/work/singer.py" --entrypoint python song-detect-gpu singer.py build
   python singer.py eval      (캐시만 읽음, numpy 만 필요)     python singer.py selftest"""
 import json, sys
 from pathlib import Path

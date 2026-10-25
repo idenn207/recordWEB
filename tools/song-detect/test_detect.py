@@ -1,4 +1,4 @@
-"""도커에서: docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" song-detect test_detect.py"""
+"""도커에서(git bash 는 MSYS_NO_PATHCONV=1 필수, 없으면 "detect.py;C" 같은 빈 폴더가 생김): MSYS_NO_PATHCONV=1 docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" song-detect test_detect.py"""
 import numpy as np
 from detect import walk, extend, split_at_talk, HOP
 

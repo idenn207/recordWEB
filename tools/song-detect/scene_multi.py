@@ -1,7 +1,7 @@
 """다중 참조 장면 게이트 (새 채널용): 채널별 기준 프레임 없이 구간을 live / watch / idle / unknown 으로 분류한다.
 기준 = 사용자가 live 로 승인한 클립의 키프레임(live 풀), 오탐 클립의 키프레임(neg 풀). 애매하면 unknown(= review).
   idle  : 시간축 밝기 변화가 거의 없음(대기 화면에 곡만 재생)
-  watch : 검은 띠가 큼(같이 보기 레이아웃) / 화면 전체가 크게 계속 움직임(영상 시청, 게임, 리듬게임)
+  watch : 검은 띠가 큼(같이 보기 레이아웃, 0.10~0.50. 0.50 초과는 검은 배경 아바타 전용 화면이라 제외) / 화면 전체가 크게 계속 움직임(영상 시청, 게임, 리듬게임)
   live  : 위에 해당하지 않고 live 풀이 neg 풀보다 가까움
   unknown: 그 외(neg 풀이 더 가까움 포함), 또는 live 풀이 비어 있음
 사용: python scene_multi.py  (data/review/blind5 의 승인/오탐 클립으로 방송 단위 leave-one-streamer-out 평가 후 assert)
@@ -10,7 +10,8 @@ import json, re, sys
 from pathlib import Path
 import numpy as np
 
-P = dict(idle=5.0, black=0.10, motion=40.0)
+P = dict(idle=5.0, black=0.10, black_max=0.50, motion=40.0)
+# shortcut: black_max 는 나나 노래방(검은 배경에 아바타만, 15713736 후보 blk 0.50~0.58)과 같이보기/오탐(blk 0.15~0.43) 사이의 빈틈 1곳에서 정한 값, 그 너머는 watch 가 아니라 live 풀 비교로 넘김(= review 전용), 새 채널에서 검은 화면 대기/시청이 나오면 재검토
 # shortcut: idle(표본 4개: 1.3~2.8 vs 비대기 최소 10.1), black(오탐 6개 0.15~0.44 vs live 최대 0.009), motion(오탐 5개 >=43.6 vs live 최대 34.2)은 22개 표본에서 정한 값, 표본이 늘면 재보정
 
 
@@ -29,7 +30,7 @@ def classify(fr, live, neg, p=P):
     tstd, blk = feats(fr)
     if tstd < p["idle"]:
         return "idle", f"정지 화면 tstd={tstd:.1f}"
-    if blk > p["black"]:
+    if p["black"] < blk <= p["black_max"]:
         return "watch", f"검은 띠 {blk:.2f}"
     if tstd > p["motion"]:
         return "watch", f"전체가 계속 움직임 tstd={tstd:.1f}"

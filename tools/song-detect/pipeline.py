@@ -79,6 +79,8 @@ def main(wav, video, vid, name, force, outroot):
     sc = json.load(open(f4, encoding="utf8"))
     from route import tier, known_neg
     segs = sc["segs"]
+    import piano_gate
+    piano_gate.annotate(vid, segs)                               # cache/exp12p/other.json 이 있을 때만 g['piano'] 표시(선택)
     (O / "cards").mkdir(exist_ok=True)
     for old in (O / "cards").glob("*.json"):
         old.unlink()

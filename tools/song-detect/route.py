@@ -19,6 +19,8 @@ def tier(g, has_refs, p=P):
     m = g.get("multi")                                   # scene_multi.classify 결과(선택). idle/watch 는 레이아웃 근거라 채널 기준 없이도 drop
     if m in ("idle", "watch"):
         return "drop", f"다중 참조: {m}"
+    if g.get("piano"):                                   # piano_gate.annotate 가 채운 경우만(없으면 기존 동작). 피아노 연주 의심: 보컬 스템 낮고 other 높음
+        return "drop", f"피아노 연주 의심(vocal {g.get('vocal')}, other {g.get('other')})"
     if g.get("start", 1e9) < p["wait_s"]:
         return "drop", "방송 시작 대기시간(앞 5분)"
     d = g.get("scene")

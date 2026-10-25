@@ -34,13 +34,13 @@
 
 ```
 # 탐지 (GPU): vocal_thr=0.2 로 고정한 설정. data 와 cache 를 둘 다 마운트하고 paths.py 도 마운트한다(이미지를 다시 빌드하지 않을 때)
-docker run --rm --gpus all -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/paths.py:/work/paths.py" -v "$PWD/detect.py:/work/detect.py" song-detect-gpu data/vod/<번호>.wav vocal_thr=0.2 --out=cache/exp8/<번호>.segments.json
+MSYS_NO_PATHCONV=1 docker run --rm --gpus all -v "$PWD/data:/work/data" -v "$PWD/cache:/work/cache" -v "$PWD/paths.py:/work/paths.py" -v "$PWD/detect.py:/work/detect.py" song-detect-gpu data/vod/<번호>.wav vocal_thr=0.2 --out=cache/exp8/<번호>.segments.json
 # 경계 재분석 -> 장면/라우팅 -> 평가 -> 검토 클립
 python scene_dataset.py cache/exp8r cache/exp9 ; python experiments/dataset_eval.py cache/exp9 ; python review/blind_vod.py cache/exp9 data/review/blind5
 # 테스트
-python test_route.py ; docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" -v "$PWD/paths.py:/work/paths.py" song-detect test_detect.py
+python test_route.py ; MSYS_NO_PATHCONV=1 docker run --rm --entrypoint python -v "$PWD/test_detect.py:/work/test_detect.py" -v "$PWD/detect.py:/work/detect.py" -v "$PWD/paths.py:/work/paths.py" song-detect test_detect.py
 ```
-주의: 프로세스를 끌 때 명령줄 패턴이 자기 셸을 매칭하지 않게 한다(과거에 셸이 종료됨). 대량 다운로드는 `fetch_vod.py`의 속도 상한과 낮은 우선순위를 유지한다(메모리 `feedback_bulk_download_network_etiquette.md`).
+주의: git bash 에서 도커 -v 를 쓰는 명령은 반드시 `MSYS_NO_PATHCONV=1` 을 앞에 붙인다(없으면 경로가 변환돼 `detect.py;C`, `data;C` 같은 빈 폴더가 생긴다). 프로세스를 끌 때 명령줄 패턴이 자기 셸을 매칭하지 않게 한다(과거에 셸이 종료됨). 대량 다운로드는 `fetch_vod.py`의 속도 상한과 낮은 우선순위를 유지한다(메모리 `feedback_bulk_download_network_etiquette.md`).
 
 ## 3. 검증 결과
 
@@ -194,3 +194,14 @@ wav 8개 합계 2.80GiB. 오프셋이 있는 6개는 같은 방송이지만 시�
 - 검증 중 발견: 같은 채널 다른 방송 기준과 화면이 멀면(게임 레이아웃 변경) 정답 라이브가 scene>0.18 로 drop 됐다(마시로 정답 재생목록 3곡 0.27~0.29 + blind7 승인 4곡). 규칙 변경: scene>0.18 이어도 다중 참조가 watch/idle 로 확정하지 않으면(live/unknown) drop 이 아니라 review. 방송 단위 분할 평가(`python scene_pool.py eval broadcast`): auto+review 재현율 57% -> 100%, 통과한 오탐은 review 의 V24(마시로 커버 같이보기, 기지의 한계) 1개, auto 오탐 0. 마시로 15827672 drop 29 -> 8.
 - 주의: review 가 많아진다. review 는 업로드하지 않는 큐여야 하며 이 큐를 줄이는 방향이 다음 과제(승인 이력 누적, 채널별 기준).
 - 짧은 랩 하한 실험(experiments/exp12_*): 90초 유지. 하한을 낮춰도 랩 3개 중 1개(마시로 10-23, 72초)만 잡히고 나머지는 YAMNet 이 Speech 로 읽어 오디오 게이트에서 탈락. 하한 60~70은 쪼개진 정답 곡 복원 효과(재현율 44/50 -> 46~48/50)가 있으나 review 가 33~49개(41방송) 늘어 보류. 권고: speech<=0.08 조건 병행 시 70부터 검토.
+
+## 15. 대규모 표본(60방송) 결과 (2026-10-25)
+
+- 수집: data/vod_meta.json(6651건, 치지직 카테고리/제목 메타), data/vods12.json(60방송 299.7h: game 14, song 18, talk 19, piano 9). 다운로드 한도는 사용자 허용으로 해제(fetch_vod.py 기본 45MB/s, 연결 24개; 사용자가 작업/스트리밍 중이면 낮출 것). 다운로드는 40분, 병목은 GPU 처리(run_big.sh + run_big2.sh 로 2개 병행). 결과 out/<videoNo>, 요약 cache/exp12_summary.json. 후보 649개: auto 18, review 411, drop 220(실패 0).
+- 카테고리 사전확률: 근거 없음(게임/잡담 대응률 신뢰구간 겹침, 음악/노래는 정답 날짜 방송 1개). route 미반영, category_prior.py 는 틀만(보정값 0).
+- 히나 피아노: 탐지기는 피아노 연주에도 후보를 낸다. 구분 신호는 Demucs other 스템 비율(`piano_gate.py`: vocal<0.5 이고 other>=0.45 이면 drop, 후보 151개 중 6개). route.py 에 piano 플래그 drop 연결, 단 cache/exp12p/other.json 이 있어야 동작(`python piano_gate.py scan <videoNo>`). 귀로 확인하지 못함 -> 사용자 검수 Q5~Q7.
+- 나나 10-16 오삭제 교정: scene_multi 의 `blk>0.10 이면 watch` 가 나나 노래방 화면(검은 배경 blk 0.55~0.58)을 같이보기로 오판 -> watch 조건에 black_max=0.50 추가. 나나 정답 후보 7/7 이 drop -> review, 같이보기 11개는 그대로 drop. blind5/6 평가 전후 동일, 통과 오탐 변화 없음. 0.50 은 오탐 최대 0.434 와 나나 최소 0.505 사이 틈에서 정한 값(좁음). 정답 2곡(Vitas, JUSTHIS)은 후보 자체가 없음.
+- 정답 대응은 길이 +-15% 가 우연과 구별되지 않아 증거로 쓰지 않음. 위치 정답이 있는 3개 방송(나나, 마시로, 후야)만 실증.
+- 위험: auto 18개 중 토아 싱크룸 10-24 의 9개는 한 방송에서 연속이라 오탐이면 한꺼번에 틀림(가창자가 토아인지 불명, 검수 Q2~Q4). review 가 411개로 크다(song 층이 시간당 4.2개로 지배). 새 채널은 승인 이력이 쌓이기 전까지 review 전용.
+- 사용자 검수 요청: data/review/blind8/ASK.md (7개 파일: 리코 1, 토아 싱크룸 3, 히나 피아노 3).
+- 알려진 충돌: 히나 15831370 의 811초(재생목록 HEARTBREAKER 와 길이 일치)는 사용자가 blind7 D2 로 '타인 음원'이라 답함. 길이 대응은 우연일 수 있어 사용자 라벨을 따른다.

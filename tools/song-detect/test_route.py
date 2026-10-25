@@ -4,6 +4,7 @@ from route import tier
 seg = lambda **k: {"keep": True, "len": 200, "scene": 0.04, **k}
 assert tier(seg(), True)[0] == "auto"
 assert tier(seg(keep=False, why="short"), True) == ("drop", "short")
+assert tier(seg(piano=True), False)[0] == "drop" and tier(seg(piano=False), True)[0] == "auto"   # piano_gate 표시가 있을 때만 drop
 assert tier(seg(scene=0.30), True)[0] == "drop"            # 같이 보기/영상 시청 화면
 assert tier(seg(scene=0.30, multi="live"), True)[0] == "review"  # 다중 참조가 watch/idle 이 아니면 멀어도 review
 assert tier(seg(scene=0.30, multi="unknown"), True)[0] == "review"

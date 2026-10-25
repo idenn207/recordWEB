@@ -16,7 +16,7 @@ outdir = next((a[6:] for a in sys.argv if a.startswith("--out=")), "blind")
 
 pool = []
 for d, who, segf in specs:
-    url = url_of(d, who)                                  # 로컬 다시보기(data/_vod) 우선, 없으면 NAS
+    url = url_of(d, who)                                  # 로컬 다시보기(data/vod/legacy) 우선, 없으면 NAS
     for s in json.loads(Path(segf).read_text(encoding="utf8")):
         if s["keep"]:
             pool.append(dict(date=d, url=url, **s))

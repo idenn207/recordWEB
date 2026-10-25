@@ -1,6 +1,6 @@
 #!/bin/sh
 # 새 표본 수집 -> GPU 탐지 -> 경계 재분석. 결과는 cache/exp10(탐지), cache/exp10r(경계 재분석 후). 기존 exp8/exp9 는 건드리지 않는다.
-# 있는 data/vod/<번호>.wav 는 재사용. 사용: ./run_new.sh <videoNo>...   (fetch_vod.py 의 속도 상한 7MB/s 그대로, 낮은 우선순위)
+# 있는 data/vod/<번호>.wav 는 재사용. 사용: ./run_new.sh <videoNo>...   (fetch_vod.py 의 기본 속도 상한 그대로, 낮은 우선순위)
 mkdir -p cache/logs cache/exp10 cache/exp10r
 for id in "$@"; do
   [ -f data/vod/$id.wav ] || nice -n 19 python datasets/fetch_vod.py $id >> cache/logs/fetch10.log 2>&1
