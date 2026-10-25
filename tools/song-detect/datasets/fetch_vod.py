@@ -1,13 +1,13 @@
 """치지직 다시보기(공개)의 오디오 전용 스트림(128kbps m4a)을 Range 요청으로 받아 data/vod/<videoNo>.wav (16kHz mono) 로 만든다.
-네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 7MB/s ~ 56Mbps, 연결 4개). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
+네트워크를 나눠 쓰도록 전체 전송 속도를 제한한다(기본 11MB/s ~ 88Mbps(사용자가 스트리밍을 안 볼 때 100Mbps 까지 허용), 연결 4개). 영상은 받지 않는다 - 장면 확인은 scene.py 가 필요한 구간만 읽는다.
 64kbps 인 144p 영상의 오디오로는 탐지 결과가 달라져서(후보 12 -> 13) 오디오 전용 스트림을 쓴다.
-사용: python fetch_vod.py <videoNo> [속도 MB/s=7] [연결수=4]"""
+사용: python fetch_vod.py <videoNo> [속도 MB/s=11] [연결수=4]"""
 import json, re, subprocess, sys, threading, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 vid = sys.argv[1]
-RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else 7e6      # 바이트/초, 모든 연결의 합
+RATE = float(sys.argv[2]) * 1e6 if len(sys.argv) > 2 else 11e6      # 바이트/초, 모든 연결의 합
 n = int(sys.argv[3]) if len(sys.argv) > 3 else 4
 UA = {"User-Agent": "Mozilla/5.0"}
 D = Path("data/vod")
@@ -19,7 +19,11 @@ mpd = urllib.request.urlopen(urllib.request.Request(
 # 오디오 전용 Representation(mimeType audio/mp4) 중 비트레이트가 가장 높은 것
 auds = [(int(m.group(2)), m.group(3).replace("&amp;", "&")) for m in re.finditer(
     r'<Representation id="([^"]+)" bandwidth="(\d+)"[^>]*mimeType="audio/mp4".*?<BaseURL>([^<]+)</BaseURL>', mpd, re.S)]
-url = max(auds)[1]
+if auds:
+    url = max(auds)[1]
+else:                                                    # 2026-07 이전 방송은 오디오 전용이 없어 144p 영상(오디오 64kbps)을 받아 오디오만 쓴다 - 기준 128kbps 와 음질이 다르다
+    url = re.search(r'<Representation id="PD_144P[^"]*".*?<BaseURL>([^<]+)</BaseURL>', mpd, re.S).group(1).replace("&amp;", "&")
+    print("오디오 전용 없음 -> 144p 영상에서 추출", vid, flush=True)
 
 _lock, _next = threading.Lock(), [0.0]
 
