@@ -290,6 +290,8 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 
 ## 22. 세션 마감 인계 (2026-10-26) - 새 세션은 이 절부터 읽는다
 
+> 2026-10-27 갱신: 아래 '현재 상태'의 v3-pad, 0.8초 페이드, 리미터 -1dBFS, auto 13/review 104 는 낡았다. 최신 상태는 23~25절(규칙 v4-faithful, 리미터 기본 꺼짐, auto 40/review 23).
+
 ### 현재 상태
 - 분석기: 상주 컨테이너 `song-analyzer`(GPU, restart unless-stopped, 127.0.0.1:8765, `python analyzer_client.py` 로 확인). 재부팅 후 Docker Desktop 이 켜지면 자동 복구. pipeline.py 는 서비스를 쓰고 실패하면 `docker run` 폴백. 리소스 상한은 항상 80%(limits.py, 사용자 요구: CPU/GPU/네트워크).
 - NAS 10월 녹화(61방송, 338h)는 PC 에서만 처리했다(NAS 는 원본 읽기 API 만). 결과 out/<슬러그>/, 카드 out/<슬러그>/cards/*.json.
@@ -332,3 +334,39 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - 사용자 지적 클립: 60(끝 -33.3초), 112(끝 -5.6초), 47(시작 +24.1), 51(시작 +7.9)은 정답 방향으로 이동. 19, 130(페이드 너무 빠름)은 경계가 아니라 새 페이드 규칙(곡 끝 이후 1초)으로 해결. 70, 82, 141(끝 early), 53(시작 late)은 이동 0(23절의 미해결 항목 그대로).
 - 음량: 클립 대 NAS 원본 wav 구간 mean volume 차 +0.2~0.5 dB, max 동일(리미터 꺼짐, 눌림 없음).
 - 한계: INDEX.md 가 클리핑 의심 26곡을 표시(원본 자체가 0dBFS 근처, 리미터를 껐으므로 의도된 결과). 정답 없는 구간의 이동은 사람이 확인하지 않았다.
+
+## 25. blind9 리뷰 판정 반영 (2026-10-27) - 새 세션은 이 절과 23, 24절을 먼저 읽는다
+
+(작업 지시서에서는 '23번 절'이라 불렀지만 23, 24절이 이미 있어 25절로 둔다.)
+
+### 사용자 판정과 등록
+- 145개(v3-pad 117 + 이전 규칙 stale 28, 같은 곡이 길이 1초 차이로 중복): L 34, B 36, N 75. 중복 제거 104곡 = L 25, B 24, N 55. 같은 곡의 L/B 가 갈린 1건은 B.
+- N 유형: 자리비움 BGM 9, GTA 노래방 9, 타 스트리머 라이브 같이 보기 10, 커버 같이 보기 4, 리듬게임 8, 게임 OST 6, 따라 부르기 3, 잡담 중 BGM 5, 같이 듣기 1.
+- 등록: labels.py BLIND9(키 `슬러그_시작초`, L 은 boundary_ok=True, B 는 False), `data/known_negatives.json` 2 -> 57건, `data/approved.json` 151건(B 는 boundary_ok=false 라 auto 근거 제외). 등록 도구 `experiments/mk_blind9.py`. data/*.json 은 .gitignore, 백업 `cache/*.bak.json`.
+
+### 규칙 변경과 수치
+- route/scene_multi: 영상 움직임 tstd > 34.5 면 watch drop(기존 40). 25 <= tstd <= 34.5 는 live 로 안 올리고 unknown + weak(카드에 기록, likely 제외, make_final 은 weak review 를 만들지 않음). 근거는 shortcut: 주석(라이브는 전부 tstd < 25, N 은 43개가 25 이상).
+- likely 정밀도(중복 제거 기준): 61%(41/67) -> 79%(41/52) -> speech < 0.06 추가 후 91%(40/44). 남은 오탐 4개는 tstd 15~17 의 멘트 없는 배경음이라 신호로 못 가른다(known_negatives 로만 대응).
+- N 75개 모두 known_neg 로 겹침 매칭되어 drop. 라이브 손실 0. 장면 풀은 blind9 클립 104개를 더해 208(키프레임 6032)로 확대.
+- 한계: weak 대역 때문에 blind5/6 의 25~34.5 대역 라이브는 live 에서 unknown 으로 내려간다(review 유지). scene_multi LOSO live 재현율 4/7(이전 값 미확인).
+
+### 오디오와 페이드 (make_final.py, RULE v4-faithful)
+- 원본 음량 유지: 리미터는 기본 꺼짐(`--limiter` 또는 SONG_LIMITER=1 일 때만, json 에 기록). 덕킹도 하지 않는다.
+- 종료 페이드: 곡 소리는 깎지 않는다. 컷 = max(기존 여유 컷, 곡 끝 + 1.0초), 페이드는 곡 끝에서 시작해 길이 min(1.5, 컷 - 곡 끝)(1.0~1.5초). 오디오와 영상이 같은 시각/길이. json 에 fade=[시작, 길이].
+- 한계: 곡 끝 직후 1초 안에 말이 있는 곡이 41%. 페이드로 거의 가려지나 완전히 제거되지는 않는다. 컷 직전 0.3초만 짧게 페이드하는 변형은 사용자 청취 비교가 필요해 미구현. 리미터 펌핑은 시험 곡 1개(나나 10-06 #01)에서 재현 안 됨(on/off 차 0.04dB).
+
+### 경계 개선과 재생성 결과
+- 경계 규칙 E1,E2,E3,S1,S2 는 23절, 전체 재생성은 24절. 요약: 숫자 정답 6건 평균 오차 17.2 -> 1.5초, auto 13 -> 40, review 104 -> 23, drop 74 -> 128, 완성본 63곡 전부 check ok. 이 수치는 blind9 표본에 과적합된 결과(사용자 허락).
+- 완성본: out/final 40곡, out/final_review 23곡, 이전 규칙은 out/stale_v3. 요약 파일 out/READ_ME_FIRST.md.
+
+### 남은 과제
+- 경계 미해결: 끝 early 9곡(#18 #20 #22 #54 #63 #65 #71 #82 #142), 시작 late 6곡(#50 #54 #58 #65 #129 #144), 시작 early #111. 근본 해결 후보(detect gap_s 20 -> 30, E1 6초 grace)는 GPU 재탐지가 필요해 보류. #70/#71 은 MR 이 말 아래에서 계속되는 경우라 YAMNet 으로 불가.
+- 자리비움 BGM 과 tstd < 25 오탐은 신호로 못 가려 known_negatives 등록만으로 막는다. 새 스트리머/새 방송에서는 review 가 다시 늘어난다.
+- 이동량이 큰 경계(#127 시작 -14.3초, #20 -9.2초, S1 최대 +40초)와 정답 없는 840구간 중 이동한 곳은 사람이 확인하지 않았다.
+
+### 사용자가 곧 할 일
+- out/final_review 23곡(대부분 B 판정 19곡)과 이동량 큰 몇 곡만 청취 확인. 판정이 오면 approved/known_negatives/BLIND9 에 반영 후 `eval_blind.py blind9`.
+- 정리 대기(삭제 안 함): out/stale_v3(45GB), out/stale_not_v3.txt, out/final_test, out/review.
+
+### 리소스 상한
+- 사용자가 2026-10-27 09:00 까지 PC 를 쓰지 않아 작업 프로세스에만 SONG_LIMIT_PCT=100 을 줬다. 분석기 컨테이너는 계속 80% 라 되돌릴 것이 없고, 09:00 이후 모든 작업은 80% 상한(limits.py)을 따른다.
