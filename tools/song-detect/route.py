@@ -9,6 +9,7 @@
 선택 입력 g['multi'] = scene_multi 의 live/watch/idle/unknown (없으면 기존 동작 그대로).
 사용: python route.py <segments.json 입력> <출력> [has_refs=1]"""
 import json, sys
+from scene_multi import P as MP    # 영상 움직임 임계값(motion/weak)을 한 곳에서
 
 P = dict(wait_s=300, scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
 # shortcut: 임계값은 3개 채널에서 정함, 새 채널의 같은 채널 기준이 쌓이면 채널별 분포로 다시 보정
@@ -18,6 +19,8 @@ def tier(g, has_refs, p=P):
     if not g["keep"]:
         return "drop", g.get("why") or "audio-gate"
     m = g.get("multi")                                   # scene_multi.classify 결과(선택). idle/watch 는 레이아웃 근거라 채널 기준 없이도 drop
+    if m != "idle" and (g.get("tstd") or 0) > MP["motion"]:
+        m = "watch"                                      # 캐시된 4_scene(옛 motion=40)도 같은 임계값으로: blind9 N 43개 중 tstd>34.5 는 15개, 라이브 70개는 전부 <25
     if m in ("idle", "watch"):
         return "drop", f"다중 참조: {m}"
     if g.get("start", 1e9) < p["wait_s"]:
@@ -47,11 +50,13 @@ def tier(g, has_refs, p=P):
 def mark_likely(segs, p=P, n_max=20, win=3600):
     """'유력(likely)' 표시(등급은 review 그대로, 사람 검수 전 미검증): review 이고 다중 참조가 live, 길이 125~340초, 방송 시작 5분 이후,
     한 방송에서 곡 후보(keep)가 win 초 안에 n_max 개 이상 몰린 구간에 속하지 않음. known_neg/piano 는 이미 drop/optional 이라 걸러진 뒤에 부른다.
-    shortcut: 근거는 blind5/6/8 표본(scene_pool.py eval 의 likely 집계)뿐, 새 채널 표본이 쌓이면 재보정"""
+    weak(움직임 25~34.5)와 speech>=0.06(멘트가 섞인 배경 노래) 제외: blind9 에서 likely 정밀도 79% -> 91%, 라이브는 41개 중 1개만 잃음.
+    shortcut: 근거는 blind5/6/8/9 표본(eval_blind.py blind9)뿐, 새 채널 표본이 쌓이면 재보정. speech 는 drop 이 아니라 likely 표시에만 쓴다(라이브 B 에도 0.09 가 있음)"""
     ts = [x["start"] for x in segs if x["keep"]]
     for g in segs:
+        g["weak"] = MP["weak"] <= (g.get("tstd") or 0) <= MP["motion"]      # 움직임이 중간 대역: 라이브 70개 전부 <25, N 중 28개가 이 대역 = 라이브 신호로 약함
         dense = any(sum(a <= t < a + win for t in ts) >= n_max for a in ts if a <= g["start"] < a + win)
-        g["likely"] = bool(g.get("tier") == "review" and g.get("multi") == "live" and p["len_lo"] <= g["len"] <= p["len_hi"] and g["start"] >= p["wait_s"] and not dense)
+        g["likely"] = bool(g.get("tier") == "review" and g.get("multi") == "live" and not g["weak"] and (g.get("speech") or 0) < 0.06 and p["len_lo"] <= g["len"] <= p["len_hi"] and g["start"] >= p["wait_s"] and not dense)
 
 
 def known_neg(vid, g, path="data/known_negatives.json"):
@@ -77,6 +82,9 @@ def known_pos(vid, g, path="data/approved.json"):
     for k in json.load(open(path, encoding="utf8")):
         ov = min(g["end"], k["end"]) - max(g["start"], k["start"])
         if str(k["videoNo"]) == str(vid) and ov >= 0.5 * min(g["end"] - g["start"], k["end"] - k["start"]):
+            if k.get("boundary_ok") is False:               # blind9 B: 라이브인 건 맞지만 승인 경계는 곡의 정답 위치가 아님 -> 경계 근거로 쓰지 않는다(auto 로 올리지 않고 review 유지)
+                g["tier_why"] = "승인 라이브지만 경계 문제(사용자 판정 B)"
+                return
             g["ref_bd"] = bd = [round(g["start"] - k["start"], 1), round(g["end"] - k["end"], 1)]   # 후보 경계 - 승인 경계(초)
             if max(map(abs, bd)) > 10:                       # 라이브인 건 확인됐지만 곡 일부가 잘리거나 앞뒤 말이 붙음: auto 로 올리지 않고 review 에 남겨 사람이 듣게 한다
                 g["tier_why"] = f"승인 라이브지만 경계 어긋남 {bd[0]:+.0f}/{bd[1]:+.0f}초"

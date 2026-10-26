@@ -61,3 +61,14 @@ S = [seg(start=400, tier="review", multi="live"), seg(start=900, tier="review", 
      seg(start=2000, tier="review", multi="live", len=100), seg(start=2500, tier="optional", multi="live")]
 mark_likely(S); assert [g["likely"] for g in S] == [True, False, False, False, False, False]
 print("likely ok")
+# 영상 움직임(tstd): 34.5 초과는 watch 로 drop(캐시된 multi 가 live 여도), 25~34.5 는 weak(likely 제외), 25 미만은 그대로
+assert tier(seg(multi="live", tstd=40), True)[0] == "drop" and tier(seg(multi="live", tstd=34.2), True)[0] == "auto" and tier(seg(multi="live", tstd=20), True)[0] == "auto"
+S = [seg(start=400, tier="review", multi="live", tstd=t) for t in (10, 30, 34.5, 25, 24.9)]
+mark_likely(S); assert [(g["weak"], g["likely"]) for g in S] == [(False, True), (True, False), (True, False), (True, False), (False, True)]
+S = [seg(start=400, tier="review", multi="live", speech=s) for s in (0.05, 0.06)]
+mark_likely(S); assert [g["likely"] for g in S] == [True, False]                  # 멘트 섞인 배경 노래는 유력 제외
+print("motion ok")
+# 승인 경계가 곡의 정답이 아닌 B(boundary_ok=False)는 겹쳐도 auto 로 올리지 않는다
+f = tempfile.mktemp(suffix=".json"); json.dump([dict(videoNo="s_1", start=100, end=300, src="t", boundary_ok=False)], open(f, "w"))
+g = seg(start=102, end=298, tier="review"); known_pos("s_1", g, f); assert g["tier"] == "review" and "경계 문제" in g["tier_why"] and "ref_bd" not in g
+os.remove(f); print("boundary_ok ok")
