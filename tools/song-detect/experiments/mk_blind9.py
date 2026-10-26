@@ -38,7 +38,7 @@ for x in D:
     print(f'    "{kid(x)}": dict(live={x["lab"] != "N"}, tag={t!r}, user=None, boundary_ok={None if x["lab"] == "N" else x["lab"] == "L"}),')
 print("}")
 key = {kid(x): dict(name=nm(x), videoNo=vno(x), start=x["ss"], end=x["se"], len=x["se"] - x["ss"], scene=x["scene"], multi=x["multi"], tstd=x["sig"]["tstd"], blk=x["sig"]["blk"], speech=x["sig"]["speech"],
-                    tier_why=x["why"], likely=x["likely"], lab=x["lab"]) for x in D}
+                    tier_why=x["why"], likely=x["likely"], lab=x["lab"], slug=x["slug"], file=x["file"]) for x in D}
 Path("data/review/blind9/key.json").write_text(json.dumps(key, ensure_ascii=False, indent=1), encoding="utf8")
 if "--write" in sys.argv:
     def merge(p, new, same):

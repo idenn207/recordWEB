@@ -33,6 +33,13 @@ def build():
                 continue
             fr[f"{s}/{v}"] = x
             meta.append(dict(set=s, id=v, name=k["name"], videoNo=k["videoNo"], start=k["start"], live=l["live"], n=len(x)))
+    k9 = Path("data/review/blind9/key.json")             # blind9: 완성본 review 클립(out/final_review/<슬러그>/<파일>) 전체 프레임. L/B = 라이브, N = 오탐. B 는 경계가 어긋나도 화면은 라이브 화면
+    for v, k in (json.load(open(k9, encoding="utf8")) if k9.exists() else {}).items():
+        f = Path("out/final_review") / k["slug"] / k["file"]
+        x = thumbs(str(f), 0, k["len"]) if f.exists() else []
+        if len(x) >= 3:
+            fr[f"blind9/{v}"] = x
+            meta.append(dict(set="blind9", id=v, name=k["name"], videoNo=k["videoNo"], start=k["start"], live=k["lab"] != "N", n=len(x), date=re.search(r"\d{4}-\d{2}-\d{2}", k["videoNo"])[0]))
     np.savez_compressed(NPZ, **fr)
     META.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf8")
     print("풀", len(meta), "클립, 라이브", sum(m["live"] for m in meta), "프레임", sum(m["n"] for m in meta))
@@ -49,7 +56,7 @@ def pool():
     D = {v["videoNo"]: v.get("date") or v.get("start") for p in glob.glob("data/vods*.json") for v in json.load(open(p, encoding="utf8"))}
     refs = json.load(open("data/refs.json", encoding="utf8"))
     for m in meta:                                      # 방송 날짜(NAS 슬러그와 같은 방송 판별용): vods*.json, 없으면 refs.json 위치(start)로
-        m["date"] = D.get(m["videoNo"]) or next((r["date"] for r in refs if abs(r["start"] - m["start"]) < 1), None)
+        m["date"] = m.get("date") or D.get(m["videoNo"]) or next((r["date"] for r in refs if abs(r["start"] - m["start"]) < 1), None)
     return meta, F
 
 
