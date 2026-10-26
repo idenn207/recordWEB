@@ -95,9 +95,19 @@ def boundary(R):
     return es, ee
 
 
+def likely_sets(R, T):
+    """mark_likely 정밀도를 세트별/합산으로(scene_pool.likely_flag: 같은 방송 out/<방송>/3_final.json 로 몰림 판정). 세트 = id 앞부분"""
+    from scene_pool import likely_flag
+    L = [t == "review" and likely_flag(dict(r["g"], tier=t), r["g"]["videoNo"]) for r, t in zip(R, T)]
+    for s in sorted({r["id"].split("/")[0] for r in R}) + ["합산"]:
+        ix = [i for i, r in enumerate(R) if s == "합산" or r["id"].startswith(s + "/")]
+        print(f"  [likely {s}] 정밀도 {fmt(sum(L[i] and R[i]['live'] for i in ix), sum(L[i] for i in ix))}  오탐 {[R[i]['id'] for i in ix if L[i] and not R[i]['live']]}")
+
+
 def main(sets):
     R = rows(sets)
     report(R, tiers(R), "현재 route.P 고정값")
+    likely_sets(R, tiers(R))
     for t in sorted({r["tag"] for r in R if r["tag"]}):
         T = tiers(R)
         print(f"  오탐 {t}: auto {sum(x == 'auto' and r['tag'] == t for r, x in zip(R, T))} / review {sum(x == 'review' and r['tag'] == t for r, x in zip(R, T))} / drop {sum(x == 'drop' and r['tag'] == t for r, x in zip(R, T))} (전체 {sum(r['tag'] == t for r in R)})")
