@@ -238,7 +238,7 @@ def check(mp4, dur, s, e, wav, fade_st):
 def main(vid, src, wav, off, tiers, only, outroot, jobs, name, date, likely=False, no_ctx=False):
     os.chdir(ROOT)
     cards = [json.load(open(p, encoding="utf8")) for p in sorted(glob.glob(f"out/{vid}/cards/*.json"))]
-    cards = [c for c in cards if c["tier"] in tiers and (not only or c["idx"] in only) and (not likely or c.get("likely"))]
+    cards = [c for c in cards if c["tier"] in tiers and (not only or c["idx"] in only) and (not likely or c.get("likely")) and not (c["tier"] == "review" and c.get("weak"))]    # weak(움직임 25~34.5) review 는 만들지 않음
     wav = wav or (f"data/vod/{vid}.wav" if Path(f"data/vod/{vid}.wav").exists() else None)
     if name is None or date is None:
         v = next((v for p in glob.glob("data/vods*.json") for v in json.load(open(p, encoding="utf8")) if str(v["videoNo"]) == vid), {})

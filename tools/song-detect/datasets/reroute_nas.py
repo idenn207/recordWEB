@@ -1,5 +1,5 @@
 """NAS 방송 전체의 pipeline 을 다시 돌려 route/카드를 갱신(GPU 탐지 캐시 재사용). 장면(4_scene.json)은 풀에서 빠지는 방송(승인 풀에 같은 스트리머+날짜가 있는 방송)만 지워 다시 계산한다(--all 이면 전부).
-사용: python datasets/reroute_nas.py [동시수=2] [--all]"""
+사용: python datasets/reroute_nas.py [동시수=2] [--all] [--final]   (--final: 3_final.json 도 지워 경계 규칙(snap/finalize)을 다시 적용, 이때 4_scene 도 같이 지운다)"""
 import json, sys, shutil, time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -12,7 +12,9 @@ rows = [r for r in json.load(open(N.IDX, encoding="utf8")) if (N.ROOT / "out" / 
 
 
 def one(r):
-    if "--all" in sys.argv or (r["streamer"], r["date"]) in POOL:
+    if "--final" in sys.argv:
+        (N.ROOT / "out" / r["slug"] / "3_final.json").unlink(missing_ok=True)
+    if "--all" in sys.argv or "--final" in sys.argv or (r["streamer"], r["date"]) in POOL:
         (N.ROOT / "out" / r["slug"] / "4_scene.json").unlink(missing_ok=True)
     t = time.time()
     try:

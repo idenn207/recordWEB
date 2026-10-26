@@ -23,7 +23,7 @@ def card(g, i, clip=None):
     """증거 카드: 최종 구간, 등급과 이유, 장면 판정, 경계 보정 전(detect)/refine 후/finalize 후, 신호 요약."""
     return dict(
         idx=i, start=g["start"], end=g["end"], len=g["len"], tier=g["tier"], tier_why=g["tier_why"],
-        scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
+        scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), weak=g.get("weak", False), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
         boundary=dict(detect=[g.get("start0", g["start"]), g.get("end0", g["end"])], refine=[g.get("start1", g["start"]), g.get("end1", g["end"])], final=[g["start"], g["end"]],
                       why_snap=g.get("why_snap")),
         signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk")}, clip=clip)
@@ -110,7 +110,7 @@ def main(wav, video, vid, name, force, outroot):
     mark_likely(segs)                                           # 등급 확정 뒤(몰림 판정에 방송 전체 후보가 필요)
     for i, g in enumerate(segs, 1):
         clip = None
-        if g["tier"] in ("auto", "review", "optional"):
+        if g["tier"] in ("auto", "review", "optional") and not os.environ.get("SONG_NOCLIP"):     # SONG_NOCLIP=1: 미리보기 클립 생략(완성본은 make_final 이 따로 만든다)
             d = O / "clips" if g["tier"] == "auto" else O.parent / g["tier"] / vid          # optional = 피아노 연주 의심(별도 옵션 대상)
             d.mkdir(parents=True, exist_ok=True)
             clip = d / f"{hms(g['start'])}{'.mp4' if video else '.m4a'}"
