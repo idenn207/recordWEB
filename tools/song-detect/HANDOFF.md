@@ -322,3 +322,13 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - 측정: `python experiments/blind9_bounds.py rules <out.json> [E1,E2,E3,S1,S2|none]` (실제 흐름 snap -> fix -> snap_quiet, `none` 은 현재 경계를 정확히 재현) 후 같은 경로 평가. 회귀 점검 `python experiments/regress_snap.py`(전 방송 840구간, 규칙별 이동 수, 약 2분).
 - 결과(blind9 평가 49곡, 숫자 정답 대략값 제외 6건 평균 |오차|): 17.2 -> 1.5초. 방향 일치 끝 early 0/12 -> 3/12, 끝 late 0/2 -> 2/2, 시작 early 0/4 -> 3/4, 시작 late 0/9 -> 3/9. ok 곡(끝 31, 시작 36)은 전부 2초 안 유지. snap evaltable(blind5/6) 변화 없음, evalnana 시작 12->13, 끝 12->14.
 - 한계: 정답 없는 840구간 중 E1 34, E2 23, E3 33, S1 25, S2 49개가 1초 넘게 움직인다(대부분 N/BGM 이거나 정답 없음, 사람이 확인하지 않음). 안 풀린 곡: 끝 early 9곡(#18 #20 #22 #54 #63 #65 #71 #82 #142), 시작 late 6곡, 시작 early #111. 완성본 재생성(RULE 이 v4-faithful 이라 기존 out/final* 은 이전 경계)과 pipeline 3_final 재계산은 아직 안 했다.
+
+## 24. v4-faithful 재생성 결과 (2026-10-27)
+
+- 실행: 61방송 전부 `SONG_LIMIT_PCT=100 SONG_NOCLIP=1 python datasets/reroute_nas.py 3 --final`(3_final.json 과 4_scene.json 삭제 후 snap/finalize 재적용, detect/refine 은 캐시 재사용, 미리보기 클립은 생략) 593초. 이어 `final_nas.py auto` 와 `final_nas.py review` 를 동시에 2프로세스로 실행 2127초(63곡, auto 는 ctx20 포함 80파일). 분석기 컨테이너는 재시작하지 않았다(GPU 분석 작업이 없었고 호스트 쪽 ffmpeg/nvenc 만 썼다. 상한은 프로세스 환경변수로만 해제했으므로 되돌릴 것 없음, 컨테이너는 계속 80%).
+- 등급 전/후: auto 13 -> 40, review 104 -> 23, drop 74 -> 128 (후보 191개 동일). auto 40 = 사용자 승인 라이브 24(blind9) + 재생목록 위치 정답 15 + 기타 1. review 23 = 경계 문제 판정(B) 19 + 경계 어긋남 3 + 새 채널 1. drop = 다중 참조 watch 65, 확인된 비대상 55, idle 6, 대기시간 2. weak review 는 0이라 제외된 곡 없음. 이 수치는 blind9 표본에 과적합된 결과다(사용자 허락): 새 방송에서는 review 가 다시 늘어난다.
+- 완성본: out/final 40곡(+ctx20) 15GB, out/final_review 23곡 5.4GB, 63곡 모두 check ok(dur/start/end 오차 0), 리미터 꺼짐. 목록 `out/final/INDEX.md`. 이전 규칙 파일은 `out/stale_v3/{final,final_review}`(45GB, 목록 `out/stale_v3/LIST.txt` 229개 mp4)로 옮겼다(삭제 안 함).
+- 경계(blind9 49곡, `experiments/blind9_bounds.py`, 소스는 auto+review 병합): 숫자 정답 6건 평균 오차 17.2 -> 1.5초(3초 이내 0 -> 5건), 끝 early 0/12 -> 3/12, 끝 late 0 -> 2/2, 시작 early 0/4 -> 3/4, 시작 late 0/9 -> 3/9, ok 곡(끝 31, 시작 36) 전부 유지. 23절의 snap 단독 측정과 같다(실제 파이프라인에서 재현됨). 전/후 원자료 `cache/pre_v4/bounds_{before,after}.txt`, 백업 `cache/pre_v4/<슬러그>/`.
+- 사용자 지적 클립: 60(끝 -33.3초), 112(끝 -5.6초), 47(시작 +24.1), 51(시작 +7.9)은 정답 방향으로 이동. 19, 130(페이드 너무 빠름)은 경계가 아니라 새 페이드 규칙(곡 끝 이후 1초)으로 해결. 70, 82, 141(끝 early), 53(시작 late)은 이동 0(23절의 미해결 항목 그대로).
+- 음량: 클립 대 NAS 원본 wav 구간 mean volume 차 +0.2~0.5 dB, max 동일(리미터 꺼짐, 눌림 없음).
+- 한계: INDEX.md 가 클리핑 의심 26곡을 표시(원본 자체가 0dBFS 근처, 리미터를 껐으므로 의도된 결과). 정답 없는 구간의 이동은 사람이 확인하지 않았다.
