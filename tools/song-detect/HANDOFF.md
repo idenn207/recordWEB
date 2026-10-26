@@ -314,3 +314,11 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - 도커 -v 명령은 git bash 에서 `MSYS_NO_PATHCONV=1` 필수(없으면 `detect.py;C` 같은 빈 폴더 생성).
 - 에이전트를 돌릴 때 GPU 작업이 겹치지 않게(80% 상한, 동시 GPU 작업 1개), `docker stop` 은 이름을 지정해서만.
 - 메모리: project_live_song_clip_detection, feedback_limit_user_review_burden, feedback_resource_cap_80pct, feedback_bulk_download_network_etiquette.
+
+## 23. blind9 경계 규칙 구현 (2026-10-27)
+
+- `snap.snap(pcm, a, s, e, voc=None)` 에 규칙 5개를 넣었다(순서: 절벽/이음 E2 -> 무음 스냅 -> E1 -> E3 -> 시작 lead_start -> S1 아니면 S2). `voc` = `snap.voc_of(wav)` (cache/detect/*.vocal.json, 없으면 S1/S2 쉼). `finalize.fix(pcm, a, g, voc)`, `pipeline.py` 가 voc 를 넘긴다.
+  - E2: `_bridge` 의 절벽 직후 에너지 검사를 1초 중앙값 -> 3초 평균(박수/외침 오탐 방지). E1: 끝 프레임이 Music>=0.85 & Speech<0.2 이면 gap 2초 이하로 이어지는 끝까지 연장(4초 이상, 90초 안). E3: 끝 앞 40초 안 마지막 깊은 무음 뒤 4초가 조용하면 무음 시작에서 끝. S1: 시작 뒤 40초 안 마지막 MR 정지(2초 이상) 뒤 -1초(정지 앞 보컬 비율<0.35, 뒤 90초 이상). S2: 시작 앞으로 vocal>=0.6 & Music>=0.2 & Speech<=0.1 창을 최대 30초.
+- 측정: `python experiments/blind9_bounds.py rules <out.json> [E1,E2,E3,S1,S2|none]` (실제 흐름 snap -> fix -> snap_quiet, `none` 은 현재 경계를 정확히 재현) 후 같은 경로 평가. 회귀 점검 `python experiments/regress_snap.py`(전 방송 840구간, 규칙별 이동 수, 약 2분).
+- 결과(blind9 평가 49곡, 숫자 정답 대략값 제외 6건 평균 |오차|): 17.2 -> 1.5초. 방향 일치 끝 early 0/12 -> 3/12, 끝 late 0/2 -> 2/2, 시작 early 0/4 -> 3/4, 시작 late 0/9 -> 3/9. ok 곡(끝 31, 시작 36)은 전부 2초 안 유지. snap evaltable(blind5/6) 변화 없음, evalnana 시작 12->13, 끝 12->14.
+- 한계: 정답 없는 840구간 중 E1 34, E2 23, E3 33, S1 25, S2 49개가 1초 넘게 움직인다(대부분 N/BGM 이거나 정답 없음, 사람이 확인하지 않음). 안 풀린 곡: 끝 early 9곡(#18 #20 #22 #54 #63 #65 #71 #82 #142), 시작 late 6곡, 시작 early #111. 완성본 재생성(RULE 이 v4-faithful 이라 기존 out/final* 은 이전 경계)과 pipeline 3_final 재계산은 아직 안 했다.

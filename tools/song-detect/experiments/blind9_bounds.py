@@ -2,7 +2,7 @@
 사용:
   python experiments/blind9_bounds.py truth                  # 아래 T 표 -> data/review/blind9/boundary_truth.json 재생성
   python experiments/blind9_bounds.py [소스]                 # 평가. 소스 = 폴더(기본 out/final_review, 하위 json 의 song_start/song_end, 폴더명=slug) 또는 json 파일([{slug, song_start, song_end}])
-  python experiments/blind9_bounds.py rules <출력.json> [E1,E2,E3,S1,S2]   # 후보 규칙을 현재 경계에 적용한 제안 경계 -> 위 평가에 그대로 넣는다
+  python experiments/blind9_bounds.py rules <출력.json> [E1,E2,E3,S1,S2|none]   # snap 규칙(켠 것만)을 refine 결과에 실제 흐름(snap -> finalize.fix -> snap_quiet)으로 적용한 경계 -> 위 평가에 그대로 넣는다(none = 예전 snap 과 같아야 함)
   규칙: E1 간주(MR 긴 쉼) 뒤 이어지는 노래로 끝 연장, E2 snap.bridge 의 절벽 직후 에너지 검사를 3초 평균으로(박수/외침 1초 오탐 방지),
         E3 끝 앞 40초 안의 깊은 무음 + 그 뒤 4초가 조용하면 무음 시작에서 끝냄, S1 앞 40초 안의 마지막 MR 정지(>=2초) 뒤로 시작(사운드체크 제외), S2 반주 없는 노래/희박한 MR 앞부분으로 시작 앞당김
 오차 = 새 경계 - 정답(초, wav 시간축의 song_start/song_end 기준. 완성본은 시작 앞 최대 2초/끝 뒤 최대 2초 여유가 더 붙는다). 양수: 시작이면 앞이 잘림, 끝이면 뒤가 남음.
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import snap
-from snap import pcm_of, rms_db, HOP
+from snap import pcm_of, rms_db
 from paths import cache_of
 
 LAB, OUT, DEF = Path("data/review/blind9/labels.json"), Path("data/review/blind9/boundary_truth.json"), Path("out/final_review")
@@ -136,90 +136,26 @@ def evaluate(src):
     return num, dr
 
 
-def with_bridge3():
-    """snap._bridge 를 절벽 직후 에너지 검사가 1초 중앙값 대신 3초 평균(dB)인 판으로 바꾼다."""
-    src = inspect.getsource(snap._bridge).replace("np.median(rms_db(pcm, c, c + 1)[1])", "np.mean(rms_db(pcm, c, c + 3)[1])")
-    ns = dict(snap.__dict__)
-    exec(src, ns)
-    return ns["_bridge"]
-
-
-def run_len(a, e, mu=0.85, sp=0.2, gap=2.0, cap=90.0):
-    """E1: e 직후부터 (Music>=mu & Speech<sp) 가 gap 초 이하 틈으로 이어지는 길이. e 에서 이미 아니거나 cap 안에 안 끝나면(BGM 가능) 0."""
-    i0 = int(e / HOP)
-    if not (a[i0, 2] >= mu and a[i0, 1] < sp):
-        return 0.0
-    last, bad = i0, 0
-    for k in range(i0, min(len(a), i0 + int(cap / HOP))):
-        if a[k, 2] >= mu and a[k, 1] < sp:
-            last, bad = k, 0
-        else:
-            bad += 1
-            if bad * HOP > gap:
-                ext = (last - i0) * HOP
-                return ext if ext >= 4 else 0.0
-    return 0.0
-
-
-def deep_end(pcm, a, ref, e, look=40.0, depth=30, minlen=0.4, nxt=4.0, nxt_db=12.0):
-    """E3: [e-look, e-1.5] 의 마지막 깊은 무음(곡 중앙값-depth dB 미만, Speech<0.3, minlen 초 이상) 뒤 nxt 초 중앙값이 ref-nxt_db 보다 조용하면 그 무음 시작, 아니면 e."""
-    ts, db = rms_db(pcm, e - look, e - 1.5)
-    q = (db < ref - depth) & (np.array([a[min(int(t / HOP), len(a) - 1), 1] for t in ts]) < 0.3)
-    runs, i = [], 0
-    while i < len(q):
-        j = i
-        while j < len(q) and q[j] == q[i]:
-            j += 1
-        if q[i] and (j - i) * 0.1 >= minlen:
-            runs.append((float(ts[i]), float(ts[j - 1]) + 0.1))
-        i = j
-    if not runs:
-        return e
-    t0, t1 = runs[-1]
-    return t0 if np.median(rms_db(pcm, t1, t1 + nxt)[1]) < ref - nxt_db else e
-
-
-def vwin(voc, a, t):
-    """detect 의 5초 창 (vocal 비율, Speech, Music, 창 시작) - t 가 속한 창."""
-    for s0, r in voc:
-        n = int((t - s0) // 5)
-        if 0 <= n < len(r):
-            k = int((s0 + n * 5) / HOP)
-            return float(r[n]), float(a[k:k + 10, 1].mean()), float(a[k:k + 10, 2].mean()), s0 + n * 5
-    return None
-
-
-def start_s1(a, voc, s, e, gap=2.0, vmax=0.35, within=40.0, min_left=90.0, lead=1.0):
-    """S1: s 뒤 within 초 안의 마지막 Music<0.3 정지(gap 초 이상)가 끝난 곳 - lead 가 새 시작. 정지 앞 5초 창 vocal 평균<vmax(MR 만 나옴)이고 뒤 곡이 min_left 이상일 때만."""
-    i0, i1, best, i = int(s / HOP), int(min(e, s + within + 12) / HOP), None, 0
-    low = a[i0:i1, 2] < 0.3
-    while i < len(low):
-        j = i
-        while j < len(low) and low[j] == low[i]:
-            j += 1
-        if low[i] and (j - i) * HOP >= gap and i * HOP <= within and e - (s + j * HOP) >= min_left:
-            w = [vwin(voc, a, t) for t in np.arange(s, s + i * HOP, 5.0)]
-            w = [x[0] for x in w if x]
-            if w and np.mean(w) < vmax:
-                best = s + j * HOP - lead
-        i = j
-    return best if best is not None else s
-
-
-def start_s2(a, voc, s, vmin=0.6, mumin=0.2, spmax=0.1, maxback=30.0):
-    """S2: s 앞으로 5초 창을 거슬러 vocal>=vmin & Music>=mumin & Speech<=spmax 인 창(반주가 희박한 노래)이 이어지는 만큼 시작을 앞당긴다."""
-    new, t = s, s - 2.5
-    while s - t < maxback:
-        w = vwin(voc, a, t)
-        if w is None or not (w[0] >= vmin and w[2] >= mumin and w[1] <= spmax):
-            break
-        new, t = w[3], w[3] - 2.5
-    return new
+def patched(off):
+    """off 에 없는 규칙만 켠 snap 모듈 상태를 만든다(원본 함수를 돌려주는 복구 함수 포함). E2 가 꺼지면 절벽 직후 검사가 예전 1초 중앙값."""
+    keep = dict(run_len=snap.run_len, deep_end=snap.deep_end, start_s1=snap.start_s1, start_s2=snap.start_s2, _bridge=snap._bridge)
+    if "E1" in off: snap.run_len = lambda a, e: 0.0
+    if "E3" in off: snap.deep_end = lambda pcm, a, ref, e, **k: e
+    if "S1" in off: snap.start_s1 = lambda a, voc, s, e, **k: s
+    if "S2" in off: snap.start_s2 = lambda a, voc, s, **k: s
+    if "E2" in off:
+        ns = dict(snap.__dict__)
+        exec(inspect.getsource(snap._bridge).replace("np.mean(rms_db(pcm, c, c + 3)[1])", "np.median(rms_db(pcm, c, c + 1)[1])"), ns)
+        snap._bridge = ns["_bridge"]
+    return lambda: [setattr(snap, k, v) for k, v in keep.items()]
 
 
 def propose(out, which):
+    """refine 결과(boundary.refine)에 현재 snap(켠 규칙만) -> finalize.fix 안전장치 -> make_final.snap_quiet 를 실제 흐름대로 적용한 곡 경계."""
+    from finalize import fix
+    from make_final import snap_quiet
     L = json.load(open(LAB, encoding="utf8"))
-    orig, b3, res, seen = snap._bridge, with_bridge3(), [], set()
+    undo, res, seen = patched({"E1", "E2", "E3", "S1", "S2"} - set(which)), [], set()
     for x in L:
         j = jload(x)
         key = (x["slug"], j["song_start"], j["song_end"])
@@ -227,28 +163,17 @@ def propose(out, which):
             continue
         seen.add(key)
         w = wav_of(x["slug"])
-        pcm, a = pcm_of(w), np.load(cache_of(w, ".scores.npy"))
-        voc = [(float(k.split("-")[0]), np.array(r)) for k, r in json.load(open(cache_of(w, ".vocal.json"))).items()]
-        s, e, why = j["song_start"], j["song_end"], []
-        if "E2" in which:
-            snap._bridge = b3
-            e2 = snap.snap(pcm, a, *j["boundary"]["refine"])[1]
-            snap._bridge = orig
-            if abs(e2 - e) > 0.05:
-                e, why = e2, why + ["E2"]
-        if "E1" in which and (d := run_len(a, e)):
-            e, why = e + d, why + ["E1"]
-        if "E3" in which:
-            ref = float(np.median(rms_db(pcm, s, e)[1]))
-            if (e3 := deep_end(pcm, a, ref, e)) < e:
-                e, why = e3, why + ["E3"]
-        if "S1" in which and (s1 := start_s1(a, voc, s, e)) > s:
-            s, why = s1, why + ["S1"]
-        elif "S2" in which and (s2 := start_s2(a, voc, s)) < s:
-            s, why = s2, why + ["S2"]
-        res.append(dict(slug=x["slug"], song_start=s, song_end=e, rule="proposal", why=why, idx=L.index(x) + 1))
+        pcm, a, voc = pcm_of(w), np.load(cache_of(w, ".scores.npy")), snap.voc_of(w)
+        r0, r1 = j["boundary"]["refine"]
+        g = fix(pcm, a, dict(keep=True, start=r0, end=r1, len=r1 - r0), voc)
+        ref = float(np.median(rms_db(pcm, g["start"], g["end"])[1]))
+        s, e = snap_quiet(pcm, a, g["start"], ref)[0], snap_quiet(pcm, a, g["end"], ref)[0]
+        res.append(dict(slug=x["slug"], song_start=s, song_end=e, rule="proposal", idx=L.index(x) + 1, base=(j["song_start"], j["song_end"]), why_snap=g.get("why_snap")))
+    undo()
     Path(out).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf8")
-    print(f"{out}: {len(res)}곡, 규칙 적용 {sum(bool(g['why']) for g in res)}곡: " + " ".join(f"#{g['idx']}{'+'.join(g['why'])}" for g in res if g["why"]))
+    mv = [g for g in res if abs(g["song_start"] - g["base"][0]) > 0.05 or abs(g["song_end"] - g["base"][1]) > 0.05]
+    print(f"{out}: {len(res)}곡, 현재 경계와 다른 곡 {len(mv)}: " + " ".join(f"#{g['idx']}({g['song_start'] - g['base'][0]:+.1f},{g['song_end'] - g['base'][1]:+.1f})" for g in mv)
+          + ("  safety 되돌림: " + str([g["idx"] for g in res if g["why_snap"]]) if any(g["why_snap"] for g in res) else ""))
 
 
 if __name__ == "__main__":
@@ -256,6 +181,6 @@ if __name__ == "__main__":
     if a[:1] == ["truth"]:
         build()
     elif a[:1] == ["rules"]:
-        propose(a[1], (a[2] if len(a) > 2 else "E1,E2,E3,S1,S2").split(","))
+        propose(a[1], [] if a[2:] == ["none"] else (a[2] if len(a) > 2 else "E1,E2,E3,S1,S2").split(","))
     else:
         evaluate(a[0] if a else DEF)
