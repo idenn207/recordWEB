@@ -5,6 +5,7 @@
 사용: python snap.py <wav> <segments.json 입력> <출력>     (cache/detect/<이름>.scores.npy 필요: 열 = Singing, Speech, Music, 0.5초 간격)
       python snap.py selftest | evaltable (사용자 경계 표) | evalnana (나나 정답 위치)"""
 import json, sys
+from pathlib import Path
 import numpy as np
 from paths import cache_of
 
@@ -104,8 +105,8 @@ def bridge(pcm, a, ref, c):
 def _bridge(pcm, a, ref, c):
     """절벽 c 가 곡 중간의 짧은 Music 하락(소리는 곡 수준으로 이어짐)이면 그 뒤 음악(Music>=0.5, Speech<0.3)이 B_GAP 초 이내 틈으로 이어지는 마지막 지점 + B_TAIL 로 끝을 옮긴다.
     진짜 끝은 절벽 직후 소리가 곡 중앙값보다 크게 줄어(표본 8개: 끝 -11~-43dB, 하락 +1~+2dB) 옮기지 않는다. 말이 B_SP 홉 이어지면 거기서 멈춘다.
-    shortcut: 임계값 -6dB 는 하락 2개/끝 6개 표본 근거(나나 10-06 ong, 토아 Q4), 곡 직후 같은 음량의 박수/노래가 이어지는 경우는 못 거른다."""
-    if np.median(rms_db(pcm, c, c + 1)[1]) < ref - B_DB:
+    shortcut: 임계값 -6dB 는 하락 2개/끝 6개 표본 근거(나나 10-06 ong, 토아 Q4), 곡 직후 3초 평균이 같은 음량인 박수/노래가 이어지는 경우는 못 거른다."""
+    if np.mean(rms_db(pcm, c, c + 3)[1]) < ref - B_DB:      # 3초 평균: 절벽 직후 1초짜리 박수/외침(+4dB)을 곡 소리로 오인하지 않음(blind9 #112/#113)
         return c
     i0, last, sp = int(c / HOP), None, 0
     for i in range(i0, min(i0 + int(B_FWD / HOP), len(a))):
@@ -117,7 +118,99 @@ def _bridge(pcm, a, ref, c):
     return c if last is None else max(c, last * HOP + B_TAIL)
 
 
-def snap(pcm, a, s, e):
+E1_MU, E1_SP, E1_GAP, E1_MIN, E1_CAP = 0.85, 0.2, 2.0, 4.0, 90.0   # 끝 연장: 끝 프레임이 이 Music/Speech 조건이면 gap 이하 틈으로 이어지는 끝까지, 최소 길이, 90초 안에 안 끝나면 믿지 않음(BGM)
+
+
+def run_len(a, e):
+    """E1: 곡 끝 e 직후부터 (Music>=E1_MU & Speech<E1_SP) 가 E1_GAP 초 이하 틈으로 이어지는 길이. e 에서 이미 아니거나 E1_CAP 안에 안 끝나면(BGM 가능) 0.
+    간주(보컬 0, Music 높음)가 detect.gap_s 를 넘어 곡이 둘로 갈린 뒤 앞 조각만 남은 경우를 잇는다(blind9 #24 +46, #26 +49, #49 +30; 근본 해결은 detect gap_s/extend 상한이지만 GPU 재탐지가 필요해 후처리로).
+    shortcut: 곡 끝 프레임이 이미 조건을 벗어난 경우(#18, #22)는 못 잇는다. 6초 grace 변형은 #111 에 +6.5초 오탐이라 채택하지 않음."""
+    i0 = int(e / HOP)
+    if i0 >= len(a) or not (a[i0, 2] >= E1_MU and a[i0, 1] < E1_SP):
+        return 0.0
+    last, bad = i0, 0
+    for k in range(i0, min(len(a), i0 + int(E1_CAP / HOP))):
+        if a[k, 2] >= E1_MU and a[k, 1] < E1_SP:
+            last, bad = k, 0
+        else:
+            bad += 1
+            if bad * HOP > E1_GAP:
+                ext = (last - i0) * HOP
+                return ext if ext >= E1_MIN else 0.0
+    return 0.0
+
+
+def deep_end(pcm, a, ref, e, look=40.0, depth=30, minlen=0.4, nxt=4.0, nxt_db=12.0):
+    """E3: [e-look, e-1.5] 의 마지막 깊은 무음(곡 중앙값-depth dB 미만, Speech<0.3, minlen 초 이상) 뒤 nxt 초 중앙값이 ref-nxt_db 보다 조용하면 그 무음 시작, 아니면 e.
+    곡이 끝난 뒤 되살아난 음악/멘트까지 끝이 따라간 경우를 당긴다(blind9 #60 +33.6 -> +0.3, #112 +6.0 -> +0.4).
+    shortcut: 곡 안의 깊은 무음 뒤가 조용한 곡(작은 소리 코다)은 일찍 잘릴 수 있다: 표본 49곡에서는 #36 #140 #142 가 뒤 4초가 -1/-8~0/+2dB 라 걸리지 않음."""
+    if e - look < 0:
+        return e
+    ts, db = rms_db(pcm, e - look, e - 1.5)
+    q = (db < ref - depth) & (a[np.minimum((ts / HOP).astype(int), len(a) - 1), 1] < 0.3)
+    runs, i = [], 0
+    while i < len(q):
+        j = i
+        while j < len(q) and q[j] == q[i]:
+            j += 1
+        if q[i] and (j - i) * FR >= minlen:
+            runs.append((float(ts[i]), float(ts[j - 1]) + FR))
+        i = j
+    if not runs:
+        return e
+    t0, t1 = runs[-1]
+    return t0 if np.median(rms_db(pcm, t1, t1 + nxt)[1]) < ref - nxt_db else e
+
+
+def voc_of(wav):
+    """cache/detect/<이름>.vocal.json -> [(구간 시작초, 5초 창별 보컬 비율 배열)]. 없으면 [] (S1/S2 는 쉬어 간다)."""
+    f = cache_of(wav, ".vocal.json")
+    return [(float(k.split("-")[0]), np.array(r)) for k, r in json.load(open(f)).items()] if Path(f).exists() else []
+
+
+def vwin(voc, a, t):
+    """detect 의 5초 창 (vocal 비율, Speech, Music, 창 시작) - t 가 속한 창. 없으면 None."""
+    for s0, r in voc:
+        n = int((t - s0) // 5)
+        if 0 <= n < len(r):
+            k = int((s0 + n * 5) / HOP)
+            return float(r[n]), float(a[k:k + 10, 1].mean()), float(a[k:k + 10, 2].mean()), s0 + n * 5
+    return None
+
+
+def start_s1(a, voc, s, e, gap=2.0, vmax=0.35, within=40.0, min_left=90.0, lead=1.0):
+    """S1 사운드체크 제외: s 뒤 within 초 안의 마지막 Music<0.3 정지(gap 초 이상)가 끝난 곳 - lead 가 새 시작.
+    MR 이 켜졌다 멈췄다 다시 시작하는 앞부분(MR 소리 확인/가사 연습)이 곡에 붙은 경우로, 정지 앞 5초 창들의 vocal 평균<vmax(MR 만 나옴)이고 뒤 곡이 min_left 이상일 때만(blind9 #47 -26, #49 -28, #52 -5.6).
+    shortcut: 정지 없이 낮은 MR 이 이어지는 사운드체크(#111)는 못 잡는다. 표본 3건 근거."""
+    i0, i1, best, i = int(s / HOP), int(min(e, s + within + 12) / HOP), None, 0
+    low = a[i0:i1, 2] < 0.3
+    while i < len(low):
+        j = i
+        while j < len(low) and low[j] == low[i]:
+            j += 1
+        if low[i] and (j - i) * HOP >= gap and i * HOP <= within and e - (s + j * HOP) >= min_left:
+            w = [vwin(voc, a, t) for t in np.arange(s, s + i * HOP, 5.0)]
+            w = [x[0] for x in w if x]
+            if w and np.mean(w) < vmax:
+                best = s + j * HOP - lead
+        i = j
+    return best if best is not None else s
+
+
+def start_s2(a, voc, s, vmin=0.6, mumin=0.2, spmax=0.1, maxback=30.0):
+    """S2 반주 희박한 앞부분 복구: s 앞으로 5초 창을 거슬러 vocal>=vmin & Music>=mumin & Speech<=spmax 인 창(반주가 희박한 노래/호흡)이 이어지는 만큼 시작을 앞당긴다(최대 maxback 초).
+    detect 가 Music>=0.5 를 요구해 빼먹은 앞소절을 되찾는다(blind9 #20 -9.2, #44 -5.5, #127/#128 -14.3).
+    shortcut: 이동량이 큰 곡(#127 -14.3초)은 사용자 청취 확인이 필요하다. 전주 MR 이 조용한 곡(#54)은 못 잡는다."""
+    new, t = s, s - 2.5
+    while s - t < maxback:
+        w = vwin(voc, a, t)
+        if w is None or not (w[0] >= vmin and w[2] >= mumin and w[1] <= spmax):
+            break
+        new, t = w[3], w[3] - 2.5
+    return new
+
+
+def snap(pcm, a, s, e, voc=None):
     _, db = rms_db(pcm, s, e)
     ref = float(np.median(db))
     c = cliff(a, e - BACK, e + FWD)
@@ -127,7 +220,12 @@ def snap(pcm, a, s, e):
     q = quiet(pcm, a, ref, e2 - 1, e2 + MARGIN)         # 끝: 음악 끝 앞 1초~뒤 2초 안에서 가장 이른 무음
     if len(q):
         e2 = float(q[0])
+    e2 += run_len(a, e2)                                # E1: 간주 뒤 이어지는 노래로 끝 연장
+    e2 = deep_end(pcm, a, ref, e2)                      # E3: 곡이 끝난 뒤 되살아난 소리까지 간 끝을 깊은 무음으로 당김
     s2 = lead_start(pcm, a, s, ref)                     # 시작: 앞 LOOK 초 안 마지막 끊김 뒤 첫 소리 - LEAD
+    if voc:                                             # vocal.json 이 있을 때만: S1 사운드체크 제외, 아니면 S2 반주 희박한 앞부분 복구
+        s1 = start_s1(a, voc, s2, e2)
+        s2 = s1 if s1 > s2 else start_s2(a, voc, s2)
     return s2, e2
 
 
@@ -164,6 +262,26 @@ def selftest():
     assert bridge(pcm, d, -20.0, 40.0) > 58             # 하락 뒤 소리가 이어지는 곳까지 따라감
     pcm[sr * 40:sr * 45] = 0                            # 같은 자리가 무음이면 진짜 끝: 옮기지 않음
     assert bridge(pcm, d, -20.0, 40.0) == 40.0
+    m = np.zeros((200, 3), np.float32)
+    m[:, 2] = 0.9
+    m[160:, 2] = 0.0                                    # 간주(Music 높고 말 없음)가 80초까지 이어짐
+    assert run_len(m, 40.0) == 39.5 and run_len(m, 90.0) == 0.0     # 끝 프레임이 조건 안이면 이어진 길이, 밖이면 0
+    m[:, 2] = 0.9                                       # 끝까지 안 끝나면(BGM 가능) 믿지 않음
+    assert run_len(m, 10.0) == 0.0
+    p2 = np.full(sr * 100, 3000, np.int16)
+    p2[sr * 50:sr * 51] = 0                             # 깊은 무음 1초
+    z = np.zeros((200, 3), np.float32)
+    assert deep_end(p2, z, -20.0, 60.0) == 60.0         # 무음 뒤가 곡 소리 수준이면 그대로(곡 안의 쉼)
+    p2[sr * 51:] = 30                                   # 무음 뒤가 계속 조용하면 무음 시작에서 끝
+    assert abs(deep_end(p2, z, -20.0, 60.0) - 50.0) < 0.11
+    b = np.full((400, 3), 0.9, np.float32)
+    b[40:50, 2] = 0.0                                   # 20~25초 MR 정지
+    assert start_s1(b, [(0.0, np.full(40, 0.1))], 0.0, 200.0) == 24.0     # 정지 앞이 MR 만이면 정지 뒤 -1초부터
+    assert start_s1(b, [(0.0, np.full(40, 0.6))], 0.0, 200.0) == 0.0      # 정지 앞이 노래면 건드리지 않음
+    c = np.zeros((400, 3), np.float32)
+    c[:, 2] = 0.5
+    assert start_s2(c, [(0.0, np.full(20, 0.7))], 50.0) == 20.0           # 희박한 반주 + 노래 창을 최대 30초 거슬러
+    assert start_s2(c, [(0.0, np.full(20, 0.3))], 50.0) == 50.0
     print("selftest ok")
 
 
@@ -181,7 +299,7 @@ def evaltable():
         for v, (a, b) in tab.items():
             w = "data/vod/%s.wav" % k[v]["videoNo"]
             s0, e, c = k[v]["start"], k[v]["end"], k[v]["clip_start"]
-            s2, e2 = snap(pcm_of(w), np.load(cache_of(w, ".scores.npy")), s0, e)
+            s2, e2 = snap(pcm_of(w), np.load(cache_of(w, ".scores.npy")), s0, e, voc_of(w))
             ee = (" | 끝 전%+.1f 후%+.1f" % (e - c - b, e2 - c - b)) if b else ""
             print(s, v, "시작 전%+.1f 후%+.1f" % (s0 - c - a, s2 - c - a) + ee)
             assert s2 - c - a <= 2, (s, v)
@@ -196,13 +314,13 @@ def evalnana(d="cache/exp7b"):
     R = []
     for date in ("2026-10-06", "2026-10-16"):
         w = "data/vod/legacy/%s_나나.wav" % date
-        pcm, a = pcm_of(w), np.load(cache_of(w, ".scores.npy"))
+        pcm, a, voc = pcm_of(w), np.load(cache_of(w, ".scores.npy")), voc_of(w)
         S = [g for g in json.load(open("%s/%s_나나.segments.json" % (d, date), encoding="utf8")) if g["keep"]]
         rs = [r for r in refs if r["date"] == date]
         for r in rs:
             c = [g for g in S if ov(g["start"], g["end"], r["start"], r["end"]) > 0.3 * r["dur"]]
             if len(c) == 1 and sum(ov(c[0]["start"], c[0]["end"], q["start"], q["end"]) > 0.3 * q["dur"] for q in rs) == 1:
-                s2, e2 = snap(pcm, a, c[0]["start"], c[0]["end"])
+                s2, e2 = snap(pcm, a, c[0]["start"], c[0]["end"], voc)
                 R.append((c[0]["start"] - r["start"], s2 - r["start"], c[0]["end"] - r["end"], e2 - r["end"]))
     R = np.array(R)
     ok, late = (lambda x: int((abs(x) <= 2).sum())), (lambda x: int((x > 2).sum()))
@@ -221,11 +339,11 @@ if __name__ == "__main__":
         evaltable()
         sys.exit()
     wav, seg_in, seg_out = sys.argv[1:4]
-    pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
+    pcm, a, voc = pcm_of(wav), np.load(cache_of(wav, ".scores.npy")), voc_of(wav)
     segs = json.load(open(seg_in, encoding="utf8"))
     for g in segs:
         if g["keep"]:
             g["start1"], g["end1"] = g["start"], g["end"]
-            g["start"], g["end"] = snap(pcm, a, g["start"], g["end"])
+            g["start"], g["end"] = snap(pcm, a, g["start"], g["end"], voc)
             g["len"] = g["end"] - g["start"]
     json.dump(segs, open(seg_out, "w", encoding="utf8"), ensure_ascii=False, indent=1)

@@ -5,13 +5,13 @@
 import json, sys
 import numpy as np
 from paths import cache_of
-from snap import pcm_of, snap
+from snap import pcm_of, snap, voc_of
 
 
-def fix(pcm, a, g):
+def fix(pcm, a, g, voc=None):
     if not g["keep"] or "start1" in g:
         return g
-    s, e = snap(pcm, a, g["start"], g["end"])
+    s, e = snap(pcm, a, g["start"], g["end"], voc)
     dur = len(pcm) / 16000
     if not (0 <= s < e <= dur and 0.5 < (e - s) / g["len"] < 2):
         g["why_snap"] = "snap 결과 이상, 원래 경계 유지"
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         selftest()
         sys.exit()
     wav, seg_in, seg_out = sys.argv[1:4]
-    pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
-    segs = [fix(pcm, a, g) for g in json.load(open(seg_in, encoding="utf8"))]
+    pcm, a, voc = pcm_of(wav), np.load(cache_of(wav, ".scores.npy")), voc_of(wav)
+    segs = [fix(pcm, a, g, voc) for g in json.load(open(seg_in, encoding="utf8"))]
     json.dump(segs, open(seg_out, "w", encoding="utf8"), ensure_ascii=False, indent=1)
     print(sum("start1" in g for g in segs), "개 확정,", sum("why_snap" in g for g in segs), "개 원래 유지")

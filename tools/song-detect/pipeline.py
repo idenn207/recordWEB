@@ -71,9 +71,9 @@ def main(wav, video, vid, name, force, outroot):
     if not f3.exists():
         from finalize import fix
         from paths import cache_of
-        from snap import pcm_of
-        pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
-        f3.write_text(json.dumps([fix(pcm, a, g) for g in json.load(open(f2, encoding="utf8"))], ensure_ascii=False, indent=1), encoding="utf8")
+        from snap import pcm_of, voc_of
+        pcm, a, voc = pcm_of(wav), np.load(cache_of(wav, ".scores.npy")), voc_of(wav)
+        f3.write_text(json.dumps([fix(pcm, a, g, voc) for g in json.load(open(f2, encoding="utf8"))], ensure_ascii=False, indent=1), encoding="utf8")
     if name is None:
         name = next((v["name"] for p in glob.glob("data/vods*.json") for v in json.load(open(p, encoding="utf8")) if str(v["videoNo"]) == vid), None)
     if not video and vid.isdigit():
