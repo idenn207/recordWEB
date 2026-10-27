@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T13:00:00.000Z",
+  "title": "Design System: recordWEB",
+  "extensions": {
+    "colorMeta": {
+      "ground": { "role": "neutral", "displayName": "Night Ground", "canonical": "#0a0d14", "tonalRamp": ["#0a0d14", "#0f131c", "#131824", "#1b2231", "#39425a", "#8891a1", "#b4bdcb", "#e9edf3"] },
+      "cornflower": { "role": "primary", "displayName": "Cornflower", "canonical": "#5a9bfc", "tonalRamp": ["#0e1a2e", "#17243b", "#1f3a66", "#2d5aa8", "#4a82e0", "#5a9bfc", "#8bbcff", "#c5ddff"] },
+      "negative": { "role": "status", "displayName": "Recording Rose", "canonical": "#f2667c", "tonalRamp": ["#2a1620", "#4a1f2c", "#7a2c40", "#b04460", "#d85a74", "#f2667c", "#f79aa9", "#fbcdd4"] },
+      "positive": { "role": "status", "displayName": "Signal Green", "canonical": "#4fbf8b", "tonalRamp": ["#11291f", "#18412f", "#216048", "#2f8a65", "#3da877", "#4fbf8b", "#86d6b0", "#c0ebd6"] },
+      "warning": { "role": "status", "displayName": "Amber", "canonical": "#e0ab4a", "tonalRamp": ["#2a2415", "#463a1c", "#6d5a26", "#9a7f33", "#c4963f", "#e0ab4a", "#ecc67f", "#f6e1b8"] }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "페이지·카드·모달 제목." },
+      "body": { "displayName": "Body", "purpose": "표, 폼, 일반 문장." },
+      "label": { "displayName": "Label", "purpose": "필드 라벨, 배지, 도움말." },
+      "mono": { "displayName": "Mono", "purpose": "쿠키 값, 경로, 파일명 패턴." }
+    },
+    "shadows": [{ "name": "floating", "value": "0 16px 36px rgba(0,0,0,.45)", "purpose": "모달, 행 메뉴, 알림처럼 떠 있는 층." }],
+    "motion": [{ "name": "rec-pulse", "value": "opacity 1 -> .35, 1.6s ease-in-out infinite", "purpose": "녹화 중 점. 유일한 상시 모션이며 reduced-motion에서 멈춘다." }],
+    "breakpoints": [{ "name": "md", "value": "768px" }]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "한 영역에 하나만 두는 주요 행동.",
+      "html": "<button class=\"ds-btn-primary\">연결 확인</button>",
+      "css": ".ds-btn-primary{background:#5a9bfc;color:#0a0d14;border:1px solid transparent;border-radius:8px;padding:8px 14px;font-weight:600;font-size:14px;transition:background .15s}.ds-btn-primary:hover{background:#7fb1fd}.ds-btn-primary:focus-visible{outline:2px solid #5a9bfc;outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "보조 행동.",
+      "html": "<button class=\"ds-btn-secondary\">전체 시작</button>",
+      "css": ".ds-btn-secondary{background:#131824;color:#e9edf3;border:1px solid #1f2636;border-radius:8px;padding:8px 14px;font-weight:600;font-size:14px;transition:background .15s}.ds-btn-secondary:hover{background:#1b2231}.ds-btn-secondary:focus-visible{outline:2px solid #5a9bfc;outline-offset:2px}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "라벨 위, 도움말 아래.",
+      "html": "<label class=\"ds-field\"><span>auth_token</span><input class=\"ds-input\" placeholder=\"40자 안팎의 영문·숫자\"></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:#8891a1}.ds-input{background:#131824;color:#e9edf3;border:1px solid #1f2636;border-radius:8px;padding:8px 10px;font:400 14px Geist,Pretendard,sans-serif}.ds-input:focus-visible{outline:2px solid #5a9bfc;outline-offset:2px}"
+    },
+    {
+      "name": "Recording Badge",
+      "kind": "chip",
+      "refersTo": "badge-recording",
+      "description": "녹화 중 상태. 점이 깜빡이고 문구가 항상 함께 나온다.",
+      "html": "<span class=\"ds-badge\"><i></i>녹화 중 01:12:09</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:6px;background:#2a1620;color:#f2667c;border-radius:999px;padding:2px 10px;font-size:12px;font-weight:600}.ds-badge i{width:8px;height:8px;border-radius:50%;background:currentColor;animation:p 1.6s ease-in-out infinite}@keyframes p{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.ds-badge i{animation:none}}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "그림자 없는 표면 컨테이너.",
+      "html": "<section class=\"ds-card\"><h2>X 스페이스 연결</h2><p>쿠키를 등록하세요.</p></section>",
+      "css": ".ds-card{background:#131824;border:1px solid #1f2636;border-radius:12px;padding:20px;color:#e9edf3}.ds-card h2{margin:0 0 4px;font:600 16px Geist,Pretendard,sans-serif}.ds-card p{margin:0;color:#8891a1;font-size:14px}"
+    },
+    {
+      "name": "Active Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "활성 메뉴는 콘플라워 틴트.",
+      "html": "<a class=\"ds-nav\">녹화 현황</a>",
+      "css": ".ds-nav{display:inline-block;background:#17243b;color:#5a9bfc;border-radius:8px;padding:8px 12px;font-weight:600;font-size:14px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Console",
+    "overview": "NAS 소유자가 짧게 들어와 녹화 상태를 보고 파일을 정리하고 문제를 고치고 나가는 어두운 콘솔. 블루 블랙 패널이 층을 이루고 콘플라워 하나가 행동과 선택만 알린다. 장식은 없고 정보가 곧 화면이다.",
+    "keyCharacteristics": [
+      "어두운 층 세 단계와 1px 테두리 하나로 구조를 만든다.",
+      "콘플라워는 주요 버튼, 활성 메뉴, 선택, 포커스, 켜진 토글에만 쓴다.",
+      "상태색은 항상 글자와 함께 나온다.",
+      "감시를 막는 오류는 모든 화면 위에 배너로 뜬다."
+    ],
+    "rules": [
+      { "name": "The One Voice Rule", "body": "콘플라워는 행동과 선택에만 쓴다.", "section": "colors" },
+      { "name": "The Word Beside Color Rule", "body": "상태는 색만으로 전달하지 않는다.", "section": "colors" },
+      { "name": "The One Border Rule", "body": "테두리는 Hairline 하나, 1px.", "section": "colors" },
+      { "name": "The Filename Wins Rule", "body": "파일 표에서 이름 칸이 남는 폭을 전부 가진다.", "section": "typography" },
+      { "name": "The No-Card-Stack Rule", "body": "카드 안에 카드를 넣지 않는다.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 색은 토큰 별칭으로만 쓴다.",
+      "Do 오류에는 실패 내용과 다음 행동을 함께 적는다.",
+      "Do 비활성 컨트롤 옆에 이유를 적는다.",
+      "Do 긴 한국어 제목은 단어 중간에서 자르지 않는다."
+    ],
+    "donts": [
+      "Don't 장식용 그라데이션, 글래스 효과, 큰 히어로 수치, 같은 모양의 아이콘 카드 격자를 만들지 않는다.",
+      "Don't 카드 안에 카드를 넣거나 한쪽만 굵은 색 테두리를 쓰지 않는다.",
+      "Don't 상태를 색만으로 알리지 않는다.",
+      "Don't 이모지나 유니코드 기호를 아이콘 대신 쓰지 않는다.",
+      "Don't 녹화 점 말고 상시 반복 모션을 추가하지 않는다."
+    ]
+  }
+}

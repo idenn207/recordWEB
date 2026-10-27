@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "pulsing-dot",
+        "value": "*",
+        "files": [
+          "docs/mockups/files.html"
+        ],
+        "createdAt": "2026-10-21T13:16:31.397Z",
+        "reason": "Recording-state dot tied to live data; index.css sanctions it as the only always-on motion and honors prefers-reduced-motion. Decided by the agent from project docs, not user confirmed."
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
 # recordWEB TypeScript 버전
 
 기존 Python(FastAPI) 앱을 NestJS + React로 다시 작성한 버전입니다. 설정/상태 JSON 파일 형식은 그대로라서
-`json/` 폴더를 바꾸지 않고 읽습니다. 기존 Python 코드는 검증이 끝날 때까지 저장소에 남아 있습니다.
+`json/` 폴더를 바꾸지 않고 읽습니다. 기존 Python 코드와 PyQt/웹 GUI는 제거했습니다(git 이력에 남아 있습니다).
 
 ## 구조 (pnpm 모노레포)
 
@@ -32,14 +32,28 @@ Windows 개발 환경에서는 `dependent/` 안의 번들 바이너리를 자동
 
 ## NAS 배포 (Docker)
 
+같은 이미지를 두 컨테이너로 띄웁니다. `ROLE` 환경변수로 역할을 정합니다(없으면 한 프로세스에 전부, 개발용).
+
+| 컨테이너 | ROLE | 하는 일 |
+|---|---|---|
+| `recordweb-recorder` | `recorder` | 녹화/후처리, 채널 API. 포트를 게시하지 않음 |
+| `recordweb-app` | `app` | 웹(5080), YouTube 업로드, 파일 관리, 설정. 채널/녹화 API는 recorder로 프록시 |
+
+웹/업로더를 고쳐 배포해도 녹화는 끊기지 않습니다. JSON 파일의 쓰기 주체는 하나입니다:
+`channels.json`은 recorder, `config.json`·쿠키·`yt_*`는 app이 씁니다. 상대가 쓴 파일은 mtime이 바뀌면 다시 읽습니다.
+app은 5초마다 recorder에 녹화 중인 파일 목록을 물어 업로드/파일 작업에서 피합니다.
+
 소스를 NAS의 `/volume3/docker/recordweb-ts/`에 올린 뒤, root 권한으로 스크립트를 실행합니다.
-녹화 중인 채널이 있으면 확인을 묻고, json 백업 → 이미지 빌드(기존 컨테이너 유지) → 교체 → 응답 확인 순서로 진행하며 롤백 명령을 출력합니다.
+json 백업 → 이미지 빌드(기존 컨테이너 유지) → 교체 → 응답 확인 순서로 진행하며 롤백 명령을 출력합니다.
 
 ```bash
-ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'
+ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'            # app만 (기본, 녹화 유지)
+ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh recorder'    # 녹화기만 (녹화 중이면 확인)
+ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh all'
 ```
 
-수동으로 하려면 기존 컨테이너를 먼저 중지한 뒤 `docker compose -f docker-compose.ts.yml up -d --build`를 실행합니다.
+기존 단일 컨테이너(`recordweb`)가 남아 있으면 스크립트가 자동으로 `all`로 바꿔 둘로 갈아탑니다(이때 한 번 녹화가 끊깁니다).
+recorder와 app 사이의 API(`/api/recorder/busy`, `/api/channels`, `/api/recording`)를 바꿀 때는 둘 다 배포하세요.
 
 기존과 같은 포트·볼륨(`/app/json`, `/app/chzzk`)을 씁니다. YouTube 업로드는 기존에 배치로 돌리던
 `yt_token.json`, `yt_upload_state.json`을 `json/` 폴더에 두면 이어서 사용합니다(상태가 있어야 이미 올린 99개가 중복되지 않습니다).

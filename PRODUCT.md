@@ -1,27 +1,56 @@
 # Product
 
-## Register
+<!-- impeccable:product-schema 1 -->
 
-product
+> 인터뷰 답변은 소유자 요청에 따라 Codex가 저장소 근거로 대신 작성했고, `[추정]`은 코드에서 직접 확인하지 못한 해석입니다. 소유자가 아직 직접 확인하지 않았습니다.
+
+## Platform
+
+web
 
 ## Users
-The NAS owner and a small number of trusted household/LAN users. They access recordWEB directly on their local network (no public exposure) to manage automatic live-stream recording — registering channels, checking recording status, adjusting config, and browsing/organizing the resulting video files. This is a personal operations tool, used in short, frequent sessions (checking recording status, cleaning up finished files), not a product anyone signs up for.
+Synology NAS 소유자와 소수의 신뢰하는 가정·LAN 사용자. 로컬 네트워크에서 짧고 자주 접속해 채널 등록, 녹화 상태 확인, 설정 변경, 완료 파일 정리를 한다. 가입해서 쓰는 서비스가 아니라 개인 운영 도구다.
+
+핵심 과업:
+- 관심 채널의 방송을 자동으로 보관한다.
+- 지금 녹화되는 것과 완료된 것을 확인한다.
+- 수 GB짜리 파일과 긴 한국어 제목을 관리한다.
 
 ## Product Purpose
-recordWEB is a self-hosted web UI (FastAPI + Jinja2) for automatically recording live streams (Chzzk, YouTube) to a NAS. It runs 24/7 in Docker on a Synology NAS. Success looks like: recordings start/stop reliably and unattended, and the operator can quickly see what's recording, what finished, and manage the resulting files (multi-GB video files with long Korean titles) without friction.
+채널을 등록하고 자동 녹화를 켜 두면 방송 시작을 감시해 NAS에 저장한다. 치지직·YouTube 라이브는 영상으로, X 스페이스는 `.m4a` 음성으로 기록한다. ffmpeg 후처리, 파일 관리, 선택적 YouTube 자동 업로드, Telegram 알림까지 한 웹에서 운영한다. 성공은 녹화가 무인으로 안정적으로 시작·종료되고, 운영자가 현재 상태와 결과 파일을 마찰 없이 파악하는 것이다.
 
-## Brand Personality
-Calm, minimal, quietly capable. This is an operator's tool, not a product being sold — it should feel like a well-made internal dashboard, not a marketing surface. Information-dense where it matters (the file table: many long filenames, sizes, timestamps) and restrained everywhere else. Dark theme by default (personal NAS/ops-tool context, used in short focused checks rather than long reading sessions).
+## Positioning
+녹화의 연속성을 웹 운영과 분리한 구조. NestJS API와 React 웹을 쓰고, recorder·app 두 Docker 컨테이너가 유닉스 소켓으로 통신한다. 웹과 업로더만 고쳐 배포해도 녹화기는 교체되지 않는다.
 
-## Anti-references
-Not a SaaS marketing dashboard (no gradient hero stats, no cream/sand backgrounds, no upsell-shaped cards). Not a loud "gamer RGB" NAS-tool aesthetic. Not glassmorphism-heavy. Avoid decorative flourishes that compete with the actual data (filenames, sizes, recording status) for attention.
+[추정] 개인 NAS에서 감시부터 보관·정리까지 맡기는 방송 기록 운영 도구. 경쟁 제품 대비 우위를 뜻하지 않는다.
 
-## Design Principles
-- The file table is the primary surface — filenames (25-50 Korean characters) get the most horizontal room; secondary metadata (type, size, mtime) stays compact and out of the way.
-- Actions stay out of the way until requested (menus/icons) rather than crowding every row with buttons.
-- Status (recording / locked / idle) must be legible at a glance, not just present.
-- Dark theme first; restrained accent color used only for status and primary actions, not decoration.
-- Korean-first typography: line-height and weight tuned for Korean text legibility, not an English-first font stack with Korean as an afterthought.
+## Operating Context
+- Synology NAS에서 Docker로 24시간 구동. 포트는 NAS의 LAN IP에만 게시한다. 로그인이 필요하다(첫 접속에서 계정 생성, 서명된 세션 쿠키, 로그인 시도 제한). 네트워크 경계와 로그인을 함께 쓴다.
+- 치지직·YouTube·X 쿠키는 설정에 붙여 넣고 NAS의 `json/`에 보관한다. 설정 API는 값을 가려서(끝 4자리만) 돌려주고, 바꿀 때만 새 값을 받는다.
+- 설정·채널·쿠키·업로드 상태는 두 컨테이너가 같은 JSON 폴더를 공유한다. 파일마다 쓰기 주체는 하나다.
+
+## Capabilities and Constraints
+- 일반 설정 변경, 파일 작업, 웹 배포가 진행 중인 녹화를 끊으면 안 된다. 자동 녹화 토글을 꺼도 현재 회차는 끝까지 간다. 녹화·후처리·업로드 중인 파일과 그 폴더는 변경에서 보호한다. 명시적 중지나 녹화기 교체는 녹화를 끝낸다.
+- 후처리 변환이 실패하면 원본을 남긴다. 업로드 완료 이력을 이어받아 중복 업로드를 피한다.
+- 외부 서비스와 NAS 자원을 절제해서 쓴다. X 감시는 최소 120초 간격이고 화면 갱신 때문에 추가 조회하지 않는다. 치지직 동시 프로브는 최대 4개. 업로더에는 동시 작업 수와 합산 전송속도 설정이 있다.
+- 용어: '예약녹화'는 방송 시작을 기다리는 감시 상태다. '감시 중지'와 '녹화 중지'를 구분한다. X 음성 방송은 '스페이스', 저장 동작은 '녹음'이라고 한다.
+- 미결: 대기 피드백 시간 기준, 목록 선택 범위, 일괄 작업의 부분 실패 표시와 재시도 단위, 휴지통 보존 기간, 용량 경고 임계값, 디스크 예측 방식, 감사 로그 정책. 모두 `PATTERNS.md`에 임시 가정 또는 미결로 남아 있다.
+
+## Brand Commitments
+이름은 recordWEB. 운영자 도구답게 차분하고 조용하며, 판매용 화면처럼 연출하지 않는다. 시각 체계는 DESIGN.md가 기록한다.
+
+## Evidence on Hand
+실제 운영 중인 NAS 배포와 그 녹화 파일, `PATTERNS.md`(동작과 상태 규칙), `docs/typescript-rewrite.md`. 고객 후기, 벤치마크, 가격은 없고 만들어 쓰지 않는다.
+
+## Product Principles
+1. 진행 중인 기록과 원본 보존을 편의 기능보다 우선한다.
+2. 자동화하되 현재 상태, 실패 원인, 복구 행동을 사용자가 알 수 있게 한다.
+3. 오류를 빈 목록이나 정상 대기로 숨기지 않는다.
+4. 삭제·중지 같은 행동은 영향과 대상을 분명히 알리고 위험에 맞게 확인받는다.
+5. 장시간 작업과 외부 서비스 제한을 존중하고, 사용자가 화면을 계속 지켜보는 부담을 줄인다.
 
 ## Accessibility & Inclusion
-Standard WCAG AA contrast throughout (body text ≥4.5:1). No stated assistive-tech requirements beyond that; keyboard operability for table row actions (dropdown menu) is expected since this is a daily-use tool for the operator.
+WCAG AA 대비(본문 4.5:1 이상). 상태를 색만으로 전달하지 않는다. 행 메뉴와 테이블은 키보드로 조작할 수 있어야 한다. 긴 한국어 파일명과 크기, 시각, 녹화·잠금 상태를 정확히 읽고 다룰 수 있어야 한다. 접근성 준수 전체가 검증된 것은 아니다.
+
+## Behavior Patterns
+UI 작업(shape, new-work, critique, audit, polish, harden) 전에 저장소 루트의 `PATTERNS.md`를 읽고 따른다. 동작과 상태의 기준은 `PATTERNS.md`, 시각의 기준은 `DESIGN.md`다. `[가정]`·`[미결]` 표시 규칙은 조용히 고르지 말고 질문으로 올린다.

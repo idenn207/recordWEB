@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 관리 목업 · recordWEB</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { ic, shell, mockbar } from './mock.js';
+
+const FILES = [
+  { n: '2026-10', dir: 1, t: '2026-10-21 20:40' },
+  { n: '백업_이전분', dir: 1, t: '2026-08-30 03:12' },
+  { n: '[치지직] 한동숙 - 10월 21일 저녁 방송 (랭크 게임 + 시청자 참여).mp4', s: '4.2 GB', ext: 'mp4', t: '2026-10-21 21:04', lock: '녹화 중' },
+  { n: '[치지직] 풍월량 - 신작 게임 첫 플레이 같이 해봐요 (1부).ts', s: '12.8 GB', ext: 'ts', t: '2026-10-21 20:52', lock: '후처리 중' },
+  { n: '[치지직] 풍월량 - 신작 게임 첫 플레이 같이 해봐요 (2부).mp4', s: '9.6 GB', ext: 'mp4', t: '2026-10-20 23:41' },
+  { n: '[YouTube] 침착맨 - 10월 19일 잡담 방송 다시보기.mp4', s: '6.1 GB', ext: 'mp4', t: '2026-10-19 22:18' },
+  { n: '[치지직] 우왁굳 - 월요 정기 방송.mp4', s: '7.4 GB', ext: 'mp4', t: '2026-10-19 21:02' },
+  { n: '[치지직] 우왁굳 - 월요 정기 방송 (하이라이트).mp4', s: '1.1 GB', ext: 'mp4', t: '2026-10-19 21:02' },
+  { n: '[치지직] 한동숙 - 10월 18일 방송.mp4', s: '3.9 GB', ext: 'mp4', t: '2026-10-18 19:30' },
+  { n: '[치지직] 한동숙 - 10월 17일 방송.mp4', s: '5.2 GB', ext: 'mp4', t: '2026-10-17 20:15' },
+  { n: '[YouTube] 침착맨 - 10월 15일 잡담 방송.mp4', s: '4.8 GB', ext: 'mp4', t: '2026-10-15 22:04' },
+  { n: '[치지직] 풍월량 - 10월 14일 방송.mp4', s: '11.3 GB', ext: 'mp4', t: '2026-10-14 20:48' },
+  { n: '[치지직] 우왁굳 - 월요 정기 방송.mp4.part', s: '212 MB', ext: 'part', t: '2026-10-13 21:40' },
+  { n: '[치지직] 한동숙 - 10월 12일 방송.mp4', s: '4.4 GB', ext: 'mp4', t: '2026-10-12 19:58' },
+];
+const PATH = '/volume3/records/치지직';
+const SRC = '사용량은 NAS 볼륨 기준(df)이에요. 폴더 크기를 합한 값과 다를 수 있습니다.';
+
+const row = (f, i, o) => {
+  const on = o.sel.has(i);
+  const menuOff = o.menuOff || f.lock;
+  return `<tr class="${on ? 'sel' : ''}">
+    <td style="width:36px"><input type="checkbox" aria-label="${f.n} 선택" ${on ? 'checked' : ''} data-sel="${i}"></td>
+    <td class="name"><div class="namecell">${ic(f.dir ? 'folder' : 'file')}<span class="t" style="${f.dir ? 'font-weight:700' : ''}" title="${f.n}">${f.n}</span>${f.lock ? `<span class="lockbadge" title="녹화·후처리·업로드 중인 파일은 바꿀 수 없어요">${f.lock === '녹화 중' ? '<span class="rec-dot"></span>' : ic('lock')}${f.lock}</span>` : ''}</div>
+      <div class="show-sm num tnum" style="padding-left:25px;font-size:.8rem">${f.s ? f.s + ' · ' : ''}${f.t}</div></td>
+    <td class="hide-sm num" style="width:7ch">${f.ext ?? ''}</td>
+    <td class="hide-sm num r tnum" style="width:10ch">${f.s ?? ''}</td>
+    <td class="hide-sm num r tnum" style="width:18ch">${f.t}</td>
+    <td class="r" style="width:48px"><button class="iconbtn" ${menuOff ? 'aria-disabled="true"' : ''} aria-label="${f.n} 작업 메뉴" title="${f.lock ? '사용 중인 파일이에요' : o.menuOff ? '선택한 항목을 한꺼번에 처리하는 중이에요' : ''}">${ic('more')}</button></td>
+  </tr>`;
+};
+
+const table = (rows, o) => `<div class="tablewrap"><table>
+  <thead><tr>
+    <th style="width:36px"><input type="checkbox" aria-label="이 폴더의 항목 모두 선택" id="all" ${o.sel.size === rows.length && rows.length ? 'checked' : ''}></th>
+    <th aria-sort="ascending">이름 ${ic('up').replace('class="i "', 'class="i " style="width:13px;height:13px;vertical-align:-2px"')}</th>
+    <th class="hide-sm" style="width:7ch">종류</th><th class="r hide-sm" style="width:10ch">크기</th><th class="r hide-sm" style="width:18ch">수정한 날짜</th><th style="width:48px"><span class="sr-only">작업</span></th>
+  </tr></thead>
+  <tbody>${rows.map((f, i) => row(f, i, o)).join('')}</tbody></table></div>
+  <div class="tablefoot"><span class="tnum">${rows.length}개 항목${o.total ? ` (현재 폴더 ${o.total}개 중)` : ''}</span><span>마지막 갱신 21:12:08</span></div>`;
+
+const disks = (crit) => `<ul class="disks" aria-label="디스크 사용량">
+  <li><button class="disk" style="cursor:pointer" title="${PATH} 로 이동"><b>volume3/records</b><span class="tnum ${crit ? 'crit' : 'muted'}">${crit ? '91' : '72'}% · ${crit ? '238 GB' : '1.1 TB'} 남음</span></button></li>
+  <li><button class="disk" style="cursor:pointer"><b>volume2/archive</b><span class="tnum muted">38% · 6.4 TB 남음</span></button></li></ul>
+  <p class="srcnote">${SRC}</p>`;
+
+const toolbar = (q = '') => `<div class="toolbar">
+  <button class="btn" aria-label="상위 폴더">${ic('up')}</button>
+  <input class="input mono grow" aria-label="경로" value="${PATH}">
+  <span class="searchwrap">${ic('search')}<input class="input search" aria-label="이름 검색" placeholder="이름 검색" value="${q}"></span>
+  <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox"> 숨김 파일</label></div>`;
+
+const head = (dis) => `<div class="pagehead"><h1>파일 관리</h1>
+  <button class="btn" ${dis ? 'disabled' : ''}>${ic('refresh')} 새로고침</button><button class="btn" ${dis ? 'disabled' : ''}>${ic('folderPlus')} 새 폴더</button></div>`;
+
+const skeleton = () => `<div class="tablewrap" aria-busy="true"><table><tbody>${Array.from({ length: 7 }, (_, i) => `<tr><td style="width:36px"><span class="skel" style="width:14px;height:14px"></span></td><td><span class="skel" style="width:${[78, 64, 70, 52, 66, 58, 72][i]}%"></span></td><td class="hide-sm" style="width:10ch"><span class="skel" style="width:60%"></span></td><td class="hide-sm" style="width:18ch"><span class="skel" style="width:80%"></span></td><td style="width:48px"></td></tr>`).join('')}</tbody></table></div>
+  <p class="muted" style="margin-top:8px" role="status">폴더를 불러오는 중…</p>`;
+
+const bulkBar = (n, total, lockedN) => `<div class="bulk" role="region" aria-label="선택한 항목 작업">
+  <b class="tnum">${n}개 선택됨</b><span class="muted tnum">현재 폴더 ${total}개 중</span>
+  <button class="btn sm" ${lockedN ? 'aria-disabled="true" disabled' : ''}>${ic('move')} 이동</button>
+  <button class="btn sm" ${lockedN ? 'disabled' : ''}>${ic('upload')} YouTube 업로드</button>
+  <button class="btn sm" ${lockedN ? 'disabled' : ''}>${ic('copy')} 스트림 복사</button>
+  <button class="btn sm danger" ${lockedN ? 'disabled' : ''}>${ic('trash')} 삭제</button>
+  <button class="btn sm ghost" id="clear">선택 해제</button>
+  ${lockedN ? `<div class="hint">${ic('lock')}<span>사용 중인 파일 ${lockedN}개가 들어 있어 이동·삭제·업로드·스트림 복사는 쓸 수 없어요.</span><button class="btn sm" id="dropLocked">사용 중 항목만 선택 해제</button></div>` : ''}</div>`;
+
+const modal = (inner) => `<div class="overlay" role="dialog" aria-modal="true">${inner}</div>`;
+
+const dlgLight = () => modal(`<div class="modal"><header><h2>휴지통으로 옮길까요?</h2></header>
+  <div class="mbody"><p class="fname">[YouTube] 침착맨 - 10월 19일 잡담 방송 다시보기.mp4</p>
+  <p class="muted" style="margin:0">6.1 GB · 휴지통에서 7일 동안 복구할 수 있어요.</p></div>
+  <footer><button class="btn">취소</button><button class="btn danger">휴지통으로</button></footer></div>`);
+
+const dlgTyped = () => modal(`<div class="modal"><header><h2>3개 항목을 완전히 삭제할까요?</h2></header>
+  <div class="mbody">
+    <ul class="targets"><li><span>${ic('folder')} 백업_이전분</span><span class="muted">폴더 · 안의 파일 41개 포함</span></li>
+      <li><span>[치지직] 우왁굳 - 월요 정기 방송.mp4</span><span class="muted tnum">7.4 GB</span></li>
+      <li><span>[치지직] 한동숙 - 10월 18일 방송.mp4</span><span class="muted tnum">3.9 GB</span></li></ul>
+    <div class="notice warn" style="margin:0">${ic('alert')}<div class="body">전체 <b class="tnum">약 52 GB</b>가 바로 지워지고 되돌릴 수 없어요.</div></div>
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="hard" checked> 휴지통을 거치지 않고 완전히 삭제</label>
+    <div class="field" id="typed"><label for="ph">계속하려면 <b>삭제</b> 를 입력하세요</label><input class="input" id="ph" autocomplete="off" autofocus><span class="hint">폴더와 여러 항목을 한꺼번에 지울 때만 입력을 요구해요.</span></div>
+  </div>
+  <footer><button class="btn">취소</button><button class="btn danger" id="go" disabled>3개 완전 삭제</button></footer></div>`);
+
+const OPEN = {
+  default: [['PATTERNS §6', '[가정]', '디스크 경고 기준: 지금 칩은 90%만 빨간색이고 대시보드 막대는 80/90이에요. 목업은 75(주황)/90(빨강)을 가정'], ['PATTERNS §2', '[가정]', '목록 선택은 현재 폴더 기준. 폴더를 바꾸면 해제']],
+  selected: [['PATTERNS §2', '[가정]', '선택은 현재 폴더 기준'], ['PATTERNS §2', '[미결]', '일괄 작업 중 일부만 실패했을 때의 표시 → "일부 실패" 탭의 제안안']],
+  partial: [['PATTERNS §2', '[미결]', '일부 실패 표시와 "실패한 것만 다시" 단위. 이 안은 GitHub Actions의 3단계 재실행을 본뜬 제안'], ['PATTERNS §5', '[미결]', '재시도 단위(녹화·업로드·변환)는 직접 정해야 함']],
+  loading: [['PATTERNS §0', '[가정]', '1초 미만 표시 없음, 1~10초 스피너, 10초 초과 진행률. 파일 목록은 스켈레톤으로 대체']],
+  empty: [['PATTERNS §4', '[확인]', '빈 상태는 제목+설명+다음 행동']],
+  zero: [['PATTERNS §4', '[확인]', '"비어 있음"과 "검색 결과 없음"을 구분하고 필터 해제 제공']],
+  error: [['PATTERNS §4', '[확인]', '불러오기 오류를 빈 상태로 보여주지 않음']],
+  'delete-light': [['PATTERNS §1', '[미결]', '휴지통 보존 기간(7일은 가짜 값). 실제 값은 설정에서 가져와야 함']],
+  'delete-typed': [['PATTERNS §1', '[가정]', '입력 문구는 "삭제". 항목 이름이나 개수를 입력하게 할지는 미정']],
+};
+
+const STATES = [['default', '기본'], ['selected', '일괄 선택'], ['partial', '일부 실패'], ['loading', '불러오는 중'], ['empty', '빈 폴더'], ['zero', '검색 결과 없음'], ['error', '불러오기 오류'], ['delete-light', '삭제 · 휴지통'], ['delete-typed', '삭제 · 입력 확인']];
+
+const openQ = (k) => `<details class="open"><summary>이 상태가 기대는 열린 결정 (${(OPEN[k] || []).length})</summary><div class="ob"><table><tbody>${(OPEN[k] || []).map(([s, t, d]) => `<tr><td class="muted" style="white-space:nowrap">${s}</td><td><span class="tag">${t}</span></td><td>${d}</td></tr>`).join('')}</tbody></table></div></details>`;
+
+const items = FILES;
+function render(k) {
+  const sel = new Set();
+  let body = '';
+  if (k === 'selected') [2, 6, 7].forEach((i) => sel.add(i));
+  if (k === 'partial') [4, 5, 6, 7, 8].forEach((i) => sel.add(i));
+  if (k === 'delete-typed') [1, 6, 8].forEach((i) => sel.add(i));
+  if (k === 'delete-light') sel.add(5);
+
+  const base = (o = {}) => {
+    const lockedN = [...sel].filter((i) => items[i].lock).length;
+    return head() + disks(true) + toolbar(o.q) + (sel.size && !o.noBulk ? bulkBar(sel.size, items.length, lockedN) : '') + (o.mid || '') + (o.list ?? table(items, { sel, total: items.length, menuOff: sel.size > 0 }));
+  };
+
+  if (k === 'loading') body = head(true) + disks(true) + toolbar() + skeleton();
+  else if (k === 'empty') body = head() + disks(true) + toolbar() + `<div class="empty">${ic('folder', '')}<h2>이 폴더는 비어 있습니다</h2><p>녹화가 끝난 파일은 채널 폴더 아래에 쌓여요. 다른 폴더를 보거나 새 폴더를 만들 수 있습니다.</p><div class="actions"><button class="btn primary">녹화 폴더로 이동</button><button class="btn">${ic('folderPlus')} 새 폴더</button></div></div>`;
+  else if (k === 'zero') body = head() + disks(true) + toolbar('풍월량 우왁') + `<div class="resultline"><span class="tnum">0개 일치 · 현재 폴더 ${items.length}개</span><span class="chip">이름: 풍월량 우왁<button aria-label="검색 해제">${ic('x').replace('class="i "', 'class="i " style="width:13px;height:13px"')}</button></span></div><div class="empty">${ic('search')}<h2>'풍월량 우왁'과 일치하는 항목이 없습니다</h2><p>띄어쓰기로 나눈 단어가 모두 들어 있는 이름만 찾아요. 단어를 줄여 보세요.</p><div class="actions"><button class="btn primary">검색 해제</button></div></div>`;
+  else if (k === 'error') body = head() + disks(true) + toolbar().replace(PATH, PATH + '/2026-09') + `<div class="notice rec" role="alert">${ic('alert')}<div class="body"><b>폴더를 불러오지 못했어요</b><br>ENOENT: 그 경로가 없거나 허용된 범위 밖이에요. (<span style="font-family:var(--font-mono);font-size:.85rem">${PATH}/2026-09</span>)<div class="actions"><button class="btn sm">${ic('refresh')} 다시 시도</button><button class="btn sm">녹화 폴더로 이동</button></div></div></div>`;
+  else if (k === 'partial') {
+    body = base({ mid: `<div class="notice warn" role="status">${ic('alert')}<div class="body"><b class="tnum">5개 중 3개를 업로드 큐에 추가했어요. 2개는 추가하지 못했어요.</b><ul><li>${ic('x').replace('class="i "', 'class="i " style="width:14px;height:14px;color:var(--rec)"')}<span class="fname">[YouTube] 침착맨 - 10월 15일 잡담 방송.mp4</span><span class="why">이미 큐에 있음</span></li><li>${ic('x').replace('class="i "', 'class="i " style="width:14px;height:14px;color:var(--rec)"')}<span class="fname">[치지직] 우왁굳 - 월요 정기 방송 (하이라이트).mp4</span><span class="why">YouTube 로그인 만료</span></li></ul><div class="actions"><button class="btn sm primary">${ic('refresh')} 실패한 2개만 다시 시도</button><button class="btn sm">YouTube 설정 열기</button><button class="btn sm ghost">닫기</button></div></div></div>` });
+  } else if (k === 'delete-light') body = base() + dlgLight();
+  else if (k === 'delete-typed') body = base() + dlgTyped();
+  else body = base();
+
+  return shell('files', 2, body + openQ(k in OPEN ? k : 'default'));
+}
+
+const app = document.getElementById('app');
+function show(k) {
+  app.innerHTML = render(k);
+  const all = document.getElementById('all');
+  if (all && !all.checked && app.querySelector('tbody input:checked')) all.indeterminate = true;
+  const go = document.getElementById('go');
+  const typed = document.getElementById('ph');
+  const hard = document.getElementById('hard');
+  if (typed) {
+    const sync = () => {
+      const needs = hard.checked;
+      document.getElementById('typed').style.display = needs ? '' : 'none';
+      go.textContent = needs ? '3개 완전 삭제' : '3개를 휴지통으로';
+      go.disabled = needs && typed.value.trim() !== '삭제';
+    };
+    typed.addEventListener('input', sync); hard.addEventListener('change', sync); sync();
+  }
+}
+mockbar('파일 관리', STATES, location.hash.slice(1) || 'default', show);
+</script>
+</body>
+</html>

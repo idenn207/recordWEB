@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>녹화 현황 목업 · recordWEB</title>
+<link rel="stylesheet" href="mockup.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { ic, shell, mockbar } from './mock.js';
+
+const CH = [
+  { n: '한동숙', p: '치지직', st: 'rec', el: '01:42:33', title: '10월 21일 저녁 방송 (랭크 게임 + 시청자 참여)', cat: '리그 오브 레전드', file: '[치지직] 한동숙 - 10월 21일 저녁 방송 (랭크 게임 + 시청자 참여).mp4', auto: 1 },
+  { n: '풍월량', p: '치지직', st: 'rec', el: '00:51:09', title: '신작 게임 첫 플레이 같이 해봐요', cat: '게임', file: '[치지직] 풍월량 - 신작 게임 첫 플레이 같이 해봐요 (1부).ts', auto: 1 },
+  { n: '우왁굳', p: '치지직', st: 'watch', auto: 1 },
+  { n: '침착맨', p: 'YouTube', st: 'watch', auto: 1 },
+  { n: '주르르', p: '치지직', st: 'watch', auto: 1 },
+  { n: '아이리 칸나', p: '치지직', st: 'idle', auto: 0 },
+  { n: '테스트 채널', p: 'YouTube', st: 'idle', auto: 0 },
+];
+
+const badge = (c, o) => c.st === 'rec' ? `<span class="badge rec"><span class="dot pulse"></span>녹화 중 <span class="tnum">${c.el}</span></span>`
+  : c.st === 'watch' ? '<span class="badge">예약 · 방송 대기</span>' : '<span class="badge muted">대기</span>';
+
+const row = (c, o = {}) => `<li class="chrow" ${o.stale ? 'style="opacity:.75"' : ''}>
+  <div class="thumb">${ic(c.p === 'YouTube' ? 'play' : 'channels')}</div>
+  <div class="chinfo"><div class="l1"><span class="muted" style="font-size:.8rem;font-weight:700">${c.p}</span><b>${c.n}</b>${badge(c, o)}${o.fail === c.n ? '<span class="badge warn">시작 실패</span>' : ''}</div>
+    <p title="${c.title ?? ''}">${c.st === 'rec' ? `${c.title} · ${c.cat}` : '방송 중이 아닙니다'}</p>
+    ${c.st === 'rec' ? `<p class="mono" title="${c.file}">${c.file}</p>` : ''}
+    ${o.fail === c.n ? `<p style="color:var(--warn);white-space:normal">쿠키가 만료되어 방송에 접속하지 못했어요. 쿠키 관리에서 갱신하세요.</p>` : ''}</div>
+  <div class="chctl"><label class="toggle">자동 녹화 <span class="sw ${c.auto ? 'on' : ''}" role="switch" aria-checked="${!!c.auto}" aria-label="${c.n} 자동 녹화"></span></label>
+    ${c.st === 'rec' ? `<button class="btn danger" ${o.stale ? 'aria-disabled="true" disabled title="서버와 연결되면 쓸 수 있어요"' : ''}>${ic('stop')} 녹화 중지</button>` : `<button class="btn primary" ${o.stale ? 'disabled title="서버와 연결되면 쓸 수 있어요"' : ''}>${ic('play')} 녹화 시작</button>`}</div></li>`;
+
+const meter = (l, pct, sub, lvl = '') => `<div class="meter"><div class="row"><span class="l" title="${l}">${l}</span><span class="tnum">${pct}%</span></div><div class="bar" role="meter" aria-label="${l}" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i class="${lvl}" style="width:${pct}%"></i></div>${sub ? `<div class="sub tnum">${sub}</div>` : ''}</div>`;
+
+const sys = () => `<section class="sysbar" aria-label="서버 상태">
+  ${meter('CPU', 18)}${meter('메모리', 54, '8.7 GB 사용')}
+  ${meter('디스크 records', 91, '238 GB 남음 · 오래된 파일 정리가 필요해요', 'crit')}${meter('디스크 archive', 38, '6.4 TB 남음')}</section>
+  <p class="srcnote">디스크 사용량은 NAS 볼륨 기준(df)이에요. 파일 관리의 폴더 크기 합과 다를 수 있습니다.</p>`;
+
+const head = (cnt, dis) => `<div class="pagehead"><h1>녹화 현황</h1>
+  <span class="tnum muted" style="margin-right:8px" aria-live="polite">녹화 중 ${cnt[0]} · 예약 ${cnt[1]} · 대기 ${cnt[2]}</span>
+  <button class="btn" ${dis ? 'disabled' : ''} title="자동 녹화가 켜진 채널의 감시를 시작합니다">${ic('play')} 전체 시작</button>
+  <button class="btn danger" ${dis ? 'disabled' : ''}>${ic('stop')} 전체 중지</button></div>`;
+
+const stale = (txt) => `<div class="stalebar tnum" role="status">${txt}</div>`;
+const skelRow = () => `<li class="chrow"><div class="thumb"></div><div class="chinfo"><span class="skel" style="width:40%"></span><span class="skel" style="width:70%;margin-top:8px"></span></div></li>`;
+const modal = (x) => `<div class="overlay" role="dialog" aria-modal="true">${x}</div>`;
+
+const OPEN = {
+  default: [['PATTERNS §6', '[가정]', '디스크 경고 75/90. 지금 코드는 80/90이라 맞춰야 함'], ['PATTERNS §6', '[미결]', '"현재 녹화 속도로 N시간" 같은 디스크 예측은 목업에 넣지 않음. 계산 방식 결정 필요'], ['PATTERNS §5', '[가정]', '갱신 주기(5초)와 "마지막 갱신" 표시는 구현 확인 필요']],
+  stale: [['PATTERNS §5', '[확인]', '새로고침 실패 시 기존 데이터를 유지하고 마지막 갱신 시각 + 다시 시도를 보여줌'], ['PATTERNS §4', '[확인]', '연결이 끊겼을 때 채널을 "대기"로 바꾸지 않음(데이터 유실처럼 보임)']],
+  stopall: [['PATTERNS §1', '[가정]', '전체 중지는 입력 확인 없이 단순 확인. 파일이 지워지는 작업이 아니라서. 바꾸려면 §1 표를 고칠 것']],
+  partial: [['PATTERNS §2', '[미결]', '일괄 시작의 일부 실패 표시와 재시도 단위']],
+  loading: [['PATTERNS §0', '[가정]', '첫 로딩은 스켈레톤']],
+  empty: [['PATTERNS §4', '[확인]', '빈 상태는 다음 행동을 안내']],
+};
+const STATES = [['default', '기본'], ['stale', '연결 끊김(데이터 유지)'], ['stopall', '전체 중지 확인'], ['partial', '전체 시작 일부 실패'], ['loading', '불러오는 중'], ['empty', '채널 없음']];
+const openQ = (k) => `<details class="open"><summary>이 상태가 기대는 열린 결정 (${(OPEN[k] || OPEN.default).length})</summary><div class="ob"><table><tbody>${(OPEN[k] || OPEN.default).map(([s, t, d]) => `<tr><td class="muted" style="white-space:nowrap">${s}</td><td><span class="tag">${t}</span></td><td>${d}</td></tr>`).join('')}</tbody></table></div></details>`;
+
+function render(k) {
+  const cnt = [2, 3, 2];
+  const list = (o) => `<ul class="chlist">${CH.map((c) => row(c, o)).join('')}</ul>`;
+  let b;
+  if (k === 'loading') b = head([0, 0, 0], true) + `<section class="sysbar" aria-busy="true">${Array.from({ length: 4 }, () => '<div class="meter"><span class="skel" style="width:60%"></span><span class="skel" style="height:4px;margin-top:10px"></span></div>').join('')}</section><ul class="chlist" aria-busy="true">${skelRow() + skelRow() + skelRow()}</ul><p class="muted" role="status" style="margin-top:8px">채널 목록을 불러오는 중…</p>`;
+  else if (k === 'empty') b = head([0, 0, 0], true) + sys() + `<div class="empty">${ic('channels')}<h2>등록된 채널이 없습니다</h2><p>녹화할 채널을 추가하면 방송이 시작될 때 자동으로 녹화해요.</p><div class="actions"><a class="btn primary" href="#">채널 추가</a></div></div>`;
+  else if (k === 'stale') b = head(cnt) + `<div class="notice rec" role="alert">${ic('alert')}<div class="body"><b>서버와 연결이 끊겼어요</b><br>21:11:48 기준 마지막 정상 데이터를 보여주고 있어요. 녹화는 서버에서 계속될 수 있습니다.<div class="actions"><button class="btn sm">${ic('refresh')} 다시 시도</button></div></div></div>` + sys() + list({ stale: 1 });
+  else if (k === 'partial') b = head(cnt) + `<div class="notice warn" role="status">${ic('alert')}<div class="body"><b class="tnum">전체 시작: 5개 중 4개를 시작했어요. 1개는 시작하지 못했어요.</b><ul><li>${ic('x').replace('class="i "', 'class="i " style="width:14px;height:14px;color:var(--rec)"')}<span class="fname">주르르 (치지직)</span><span class="why">쿠키 만료</span></li></ul><div class="actions"><button class="btn sm primary">${ic('refresh')} 실패한 1개만 다시 시도</button><button class="btn sm">쿠키 관리 열기</button><button class="btn sm ghost">닫기</button></div></div></div>` + sys() + stale('마지막 갱신 21:12:08 · 5초마다 자동 갱신') + list({ fail: '주르르' });
+  else {
+    b = head(cnt) + sys() + stale('마지막 갱신 21:12:08 · 5초마다 자동 갱신') + list({});
+    if (k === 'stopall') b += modal(`<div class="modal"><header><h2>모든 녹화를 중지할까요?</h2></header><div class="mbody"><ul class="targets"><li><span>한동숙 · 치지직</span><span class="muted tnum">01:42:33</span></li><li><span>풍월량 · 치지직</span><span class="muted tnum">00:51:09</span></li></ul><p style="margin:0" class="muted">지금까지 받은 방송은 파일로 저장되고 후처리가 시작돼요. 예약 중인 채널 3개의 감시도 멈춥니다.</p></div><footer><button class="btn">취소</button><button class="btn danger">${ic('stop')} 전체 중지</button></footer></div>`);
+  }
+  return shell('index', k === 'loading' || k === 'empty' ? 0 : 2, b + openQ(k));
+}
+const app = document.getElementById('app');
+mockbar('녹화 현황', STATES, location.hash.slice(1) || 'default', (k) => { app.innerHTML = render(k); });
+</script>
+</body>
+</html>
