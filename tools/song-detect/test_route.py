@@ -49,8 +49,27 @@ g = seg(start=108, end=290, tier="review"); known_pos(7, g, f); assert g["tier"]
 g = seg(start=120, end=290, tier="review"); known_pos(8, g, f); assert g["tier"] == "review"          # 다른 방송
 g = seg(start=120, end=290, tier="drop"); known_pos(7, g, f); assert g["tier"] == "drop"            # drop 은 승인으로도 못 뒤집음
 g = seg(start=250, end=500, tier="review"); known_pos(7, g, f); assert g["tier"] == "review"        # 절반 미만 겹침
-g = seg(start=120, end=290, tier="review"); known_pos(7, g, f); assert g["ref_bd"] == [20, -10] and g["tier"] == "review" and "경계" in g["tier_why"]       # 경계가 10초 넘게 어긋나면 auto 아님
+g = seg(start=120, end=290, tier="review"); known_pos(7, g, f); assert g["ref_bd"] == [20, -10] and g["tier"] == "auto"       # 경계 정답이 아닌 승인 항목(src t = 탐지 당시 값)은 경계가 어긋나도 auto (D3: V16 마시로 +38초)
 g = seg(start=105, end=290, tier="review"); known_pos(7, g, f); assert g["tier"] == "auto" and g["ref_bd"] == [5, -10]
+os.remove(f)
+# 경계 정답이 있는 항목(재생목록 위치 정답 / boundary_ok=True)만 10초 넘게 어긋나면 auto 아님. 겹치는 항목이 여럿이면 하나라도 맞으면 auto, 등록 순서 무관(D5: #45)
+PL, OK = dict(videoNo=7, start=100, end=300, src="재생목록 위치 정답"), dict(videoNo=7, start=120, end=290, src="blind9 사용자 라이브", boundary_ok=True)
+def kp(ents, **k):
+    json.dump(ents, open(f, "w")); g = seg(start=120, end=290, tier="review", **k); known_pos(7, g, f); return g
+g = kp([PL]); assert g["tier"] == "review" and g["ref_bd"] == [20, -10] and "경계 어긋남" in g["tier_why"]
+assert kp([PL, OK])["tier"] == "auto" and kp([OK, PL])["tier"] == "auto" and kp([PL, OK])["ref_bd"] == [0, 0]
+B = dict(OK, boundary_ok=False)
+g = kp([B]); assert g["tier"] == "review" and "경계 문제" in g["tier_why"] and "ref_bd" not in g
+assert kp([PL, B])["tier"] == "review" and kp([B, dict(PL, start=118, end=292)])["tier"] == "auto"   # B 는 auto 근거가 아니고, 다른 맞는 항목을 가리지도 않는다
+# 영상 움직임 drop 면제(D1): 승인 구간과 80% 이상 겹칠 때만, 움직임 drop 에 한해서
+mv = dict(multi="live", tstd=35.7)
+g = seg(start=120, end=290, **mv); g["tier"], g["tier_why"] = tier(g, True); assert g["tier"] == "drop" and "움직임" in g["tier_why"]
+json.dump([OK], open(f, "w")); known_pos(7, g, f); assert g["tier"] == "auto" and "면제" in g["tier_why"]
+g = seg(start=120, end=290, **mv); g["tier"], g["tier_why"] = tier(g, True); json.dump([dict(OK, start=100, end=180)], open(f, "w")); known_pos(7, g, f); assert g["tier"] == "drop"   # 겹침 60/min(170,80)=75% < 80%
+g = seg(start=120, end=290, **mv); g["tier"], g["tier_why"] = tier(g, True); json.dump([B], open(f, "w")); known_pos(7, g, f); assert g["tier"] == "review"    # 라이브 확인(B)이면 drop 에서 구해 review
+g = seg(start=120, end=290, multi="watch"); g["tier"], g["tier_why"] = tier(g, True); json.dump([OK], open(f, "w")); known_pos(7, g, f); assert g["tier"] == "drop"   # 레이아웃 watch 는 승인으로도 못 뒤집음
+g = seg(start=120, end=290, multi="idle"); g["tier"], g["tier_why"] = tier(g, True); known_pos(7, g, f); assert g["tier"] == "drop"
+g = seg(start=120, end=290, **mv); g["tier"], g["tier_why"] = tier(g, True); known_pos(8, g, f); assert g["tier"] == "drop"      # 다른 방송
 os.remove(f); print("known_pos ok")
 from route import mark_likely
 S = [seg(start=300 + 60 * i, tier="review", multi="live") for i in range(19)]

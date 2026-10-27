@@ -12,7 +12,7 @@ import numpy as np
 
 P = dict(idle=5.0, black=0.10, black_max=0.50, motion=34.5, weak=25.0)
 # shortcut: black_max 는 나나 노래방(검은 배경에 아바타만, 15713736 후보 blk 0.50~0.58)과 같이보기/오탐(blk 0.15~0.43) 사이의 빈틈 1곳에서 정한 값, 그 너머는 watch 가 아니라 live 풀 비교로 넘김(= review 전용), 새 채널에서 검은 화면 대기/시청이 나오면 재검토
-# shortcut: motion 34.5 / weak 25: blind9 표본 145개(중복 포함, 라이브 70 / N 75)에서 라이브 전부 tstd<25, N 43개가 >=25(34.5 초과 15, 25~34.5 28개). 이전 라이브 최대 34.2(blind5/6). weak 대역은 live 가 아닌 unknown(+카드 weak 표시)로 내리지만 N 을 다 못 거름(자리비움 BGM 등은 신호로 못 가름 -> known_negatives)
+# shortcut: motion 34.5 / weak 25: blind9 표본 145개(중복 포함, 라이브 70 / N 75)에서 라이브 전부 tstd<25, N 43개가 >=25(34.5 초과 15, 25~34.5 28개). 이전 라이브 최대 34.2(blind5/6). 승인 107곡 전체로는 34.5 초과 1곡(blind5 V15 후야 @4692 tstd 35.67)과 25~34.5 12곡(마시로 15827672 전부)이 있어 '라이브는 전부 <25' 는 blind9 표본에만 맞는다: 34.5 초과는 route.known_pos 가 승인 구간(80% 겹침)에 한해 면제. weak 대역은 live 가 아닌 unknown(+카드 weak 표시)로 내리지만 N 을 다 못 거름(자리비움 BGM 등은 신호로 못 가름 -> known_negatives)
 # shortcut: idle(표본 4개: 1.3~2.8 vs 비대기 최소 10.1), black(오탐 6개 0.15~0.44 vs live 최대 0.009), motion(오탐 5개 >=43.6 vs live 최대 34.2)은 22개 표본에서 정한 값, 표본이 늘면 재보정
 
 

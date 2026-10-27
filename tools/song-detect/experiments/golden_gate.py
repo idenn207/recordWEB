@@ -108,8 +108,30 @@ def check(quiet=False):
     return bad
 
 
+def n_check():
+    """blind9 N 75행(중복 포함)이 승인 구간 면제로 새지 않는지: route.tier -> known_pos(실제 approved.json) 까지만(등록부 known_neg 없이) 돌려 auto 가 0 이어야 한다.
+    움직임 drop 이던 N 이 면제 경로로 올라가면 '면제' 표시가 붙으므로 그 수도 0 이어야 한다. known_neg 까지 넣은 실제 흐름은 전부 drop 이어야 한다."""
+    import route
+    L = [x for x in json.load(open(ROOT / "data/review/blind9/labels.json", encoding="utf8")) if x["lab"] == "N"]
+    res = {"no_registry": [], "full": []}
+    for x in L:
+        vid = "_".join(x["slug"].split("_")[2:])
+        for mode in res:
+            g = dict(keep=True, start=x["ss"], end=x["se"], len=x["se"] - x["ss"], scene=x["scene"], multi=x["multi"], **{k: x["sig"].get(k) for k in ("tstd", "blk", "speech")})
+            g["tier"], g["tier_why"] = route.tier(g, "새 채널" not in x["why"])
+            route.known_pos(vid, g)
+            if mode == "full":
+                route.known_neg(vid, g)
+            res[mode].append((g["tier"], "면제" in g["tier_why"]))
+    n = len(L)
+    cnt = lambda m, t: sum(r[0] == t for r in res[m])
+    print(f"blind9 N {n}행: 등록부 없이 auto {cnt('no_registry', 'auto')} (움직임 면제 경유 {sum(r[1] for r in res['no_registry'])}) review {cnt('no_registry', 'review')} drop {cnt('no_registry', 'drop')} | 실제 흐름(등록부 포함) drop {cnt('full', 'drop')}/{n}")
+    assert n == 75 and cnt("no_registry", "auto") == 0 and not any(r[1] for r in res["no_registry"]) and cnt("full", "drop") == n, "N 이 승인 면제나 등록 누락으로 샌다"
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["freeze"]:
         freeze()
     else:
+        n_check()
         sys.exit(1 if check() else 0)
