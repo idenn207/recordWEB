@@ -67,12 +67,13 @@ def run(tiers, slug=None, only=None):
             j = json.load(open(js, encoding="utf8"))
             if not j.get("ok") or j.get("rule") != "v5-bounds":
                 continue
-            sl = js.parent.name
-            cid = f"{t}_{sl.split('_')[-3] if False else sl[:6]}_{sl.split('_')[1][:4]}{sl.split('_')[-1]}_{j['card_idx']:02d}"
-            if only and j["card_idx"] != only:
+            d = js.parent.name.split("_")
+            sl = "_".join(d[2:])                              # out/final/<yymmdd>_<이름>_<슬러그>
+            cid = f"{t}_{d[0]}_{d[-2]}{d[-1]}_{j['card_idx']:02d}"
+            if (only and j["card_idx"] != only) or ((OUT / f"{cid}.png").exists() and cid in D and not only):    # 이미 만든 그림은 건너뜀
                 continue
             wav = str(ROOT / nas[sl]["wav"]); mp4 = js.with_suffix(".mp4"); S = np.load(cache_of(wav, ".scores.npy"))
-            D[cid] = dict(tier=t, slug=sl, idx=j["card_idx"], mp4=str(mp4.relative_to(ROOT)), dur=j["clip_len"], fade=j["fade"], tail=round(j["vod_end"] - j["song_end"], 2), why=j.get("tier_why"),
+            D[cid] = dict(tier=t, slug=sl, clip=js.stem, idx=j["card_idx"], mp4=mp4.relative_to(ROOT).as_posix(), dur=j["clip_len"], fade=j["fade"], tail=round(j["vod_end"] - j["song_end"], 2), why=j.get("tier_why"),
                           code=j.get("code"), likely=j.get("likely"), signals=j.get("signals"), stages=[x for x in (j.get("stages") or []) if abs(x.get("shift", x.get("after", 0) - x.get("before", 0))) > 0.5] if j.get("stages") else None,
                           **diag(pcm_of(wav), S, j))
             cs, s, e, ce = j["vod_start"], j["song_start"], j["song_end"], j["vod_end"]
@@ -83,8 +84,8 @@ def run(tiers, slug=None, only=None):
             for k, (a, b, ti) in enumerate(((cs - 3, s + 12, "START window (cut / song)"), (e - 12, ce + 3, "END window (song / cut)"))):
                 ax3 = [fig.add_subplot(gs[r, 3 * k:3 * k + 3]) for r in (1, 2, 3)]
                 win(ax3, wav, S, a, b, [(cs, "cut"), (s, "song"), (e, "song"), (ce, "cut")], f"{cid} {ti}")
-            fig.suptitle(f"{cid}  {js.stem}  len {j['clip_len']:.0f}s  {j.get('tier_why') or ''}", fontsize=9)
-            fig.savefig(OUT / f"{cid}.png", dpi=62, bbox_inches="tight"); plt.close(fig)
+            fig.suptitle(f"{cid}  len {j['clip_len']:.0f}s  {j['code']}", fontsize=9)
+            fig.savefig(OUT / f"{cid}.png", dpi=80, bbox_inches="tight"); plt.close(fig)
             print(cid, flush=True)
     json.dump(D, open(dj, "w", encoding="utf8"), ensure_ascii=False, indent=1)
 

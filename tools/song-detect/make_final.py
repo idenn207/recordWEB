@@ -16,6 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent
 SR, FADE, DECLICK, CTX, PRE = 16000, 1.5, 0.02, 20.0, 10.0      # FADE = 종료 페이드 최대 길이, 최소 여유는 TAIL
+TAIL_EXT, TAIL_LOUD = 3.0, 20.0         # 컷에서도 소리가 곡 중앙값-TAIL_LOUD dB 보다 크게 이어지면(말 없음) 곡 끝 +TAIL_EXT 초까지 컷을 늘린다(마지막 화음/감쇠를 자르지 않게)
 TAIL, TAIL_MIN, TAIL_SP, TAIL_DB = 1.0, 0.3, 0.15, 25.0       # 종료 컷은 곡 끝보다 최소 TAIL 초 뒤. 단 그 안에 들리는 말소리(Speech>TAIL_SP, 곡 중앙값-TAIL_DB 이상)가 시작하면 그 직전(곡 끝+TAIL_MIN 이상)
 LIMITER = os.environ.get("SONG_LIMITER") == "1" or "--limiter" in sys.argv      # 기본 꺼짐: alimiter 는 보컬 구간에서 음량을 눌러 펌핑(사용자 불만)
 import limits
@@ -164,13 +165,23 @@ def tail_cut(pcm, a, ref, e, ce):
     """종료 컷: max(ce, 곡 끝 e + TAIL). 곡 끝 뒤 TAIL 초 안에 들리는 말소리(0.1초 프레임이 속한 점수 창 중심 기준 Speech>TAIL_SP 이고 음량이 곡 중앙값-TAIL_DB 이상)가 시작하면 컷을 그 0.05초 앞으로, 단 e + TAIL_MIN 보다 앞서지 않게 줄인다.
     근거(P2, 스펙트로그램 #105 #126 #138 #71 로 확인): 사용자 요구는 '페이드는 곡 끝 이후에만, 컷은 곡 끝 +1초'였지만 곡이 끝나자마자 말이 이어지면(포먼트가 곡 끝 직후 시작, 음량 -10~0dB) 1초 컷+페이드로는 말소리가 지워지지 않는다.
     말 직전 컷은 곡 소리를 깎지 않고 잃는 것이 곡 끝~말 사이(무음/꼬리)뿐이라 '컷 >= +1초'만 양보한다(golden 113곡 중 54곡 컷이 0.3~0.85초로 줄고 말소리 포함 곡 44 -> 19, 승인 L 25곡은 8 -> 2). 컷을 +1초로 두고 페이드만 줄이는 변형은 말소리가 그대로 들려 기각.
+    연장(자체 검수 P-regen): 곡 끝 표식 뒤에도 큰 소리(곡 중앙값-TAIL_LOUD dB 이상)가 말 없이 컷까지 이어지는 곡(#rang1_02 마지막 화음, 메모 '종료 fade out 1초 더')은 소리가 작아지거나 말이 시작할 때까지, 최대 곡 끝 +TAIL_EXT 초까지 늘린다.
     shortcut: 곡 끝 직후 말이 곡 소리와 같은 크기로 겹치는 곡(#14 #138 #143)은 최소 TAIL_MIN 동안 말이 남는다. 점수 창이 0.5초 간격이라 말 시작은 +-0.25초 오차."""
     from snap import rms_db, HOP
     cut = max(ce, e + TAIL)
-    ts, db = rms_db(pcm, e, e + TAIL)
+    ts, db = rms_db(pcm, e, e + TAIL_EXT)
     ix = np.clip(np.round((ts - 0.4875) / HOP).astype(int), 0, len(a) - 1)
     hit = (a[ix, 1] > TAIL_SP) & (db > ref - TAIL_DB)
-    return min(cut, max(e + TAIL_MIN, float(ts[hit][0]) - 0.05)) if hit.any() else cut
+    k = k0 = int(round(TAIL / (ts[1] - ts[0])))                  # 곡 끝 +TAIL 초에 해당하는 프레임
+    if len(ts) <= k:
+        return cut                                               # 파일 끝
+    if hit[:k].any():
+        return min(cut, max(e + TAIL_MIN, float(ts[:k][hit[:k]][0]) - 0.05))
+    if cut > e + TAIL or np.median(db[k - 5:k]) < ref - TAIL_LOUD:
+        return cut                                               # 여유 컷이 이미 더 길거나 컷 직전 0.5초가 충분히 작으면 그대로
+    while k < len(ts) and db[k] > ref - TAIL_LOUD and not hit[k]:
+        k += 1                                                   # 큰 소리가 이어지는 동안(마지막 화음/감쇠) 말이 시작하거나 작아질 때까지
+    return float(ts[min(k, len(ts) - 1)]) if k > k0 else cut
 
 
 def stages_of(card, st):
@@ -212,8 +223,8 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ct
     if js.exists() and (j0 := json.loads(js.read_text(encoding="utf8"))).get("ok") and j0.get("rule") == RULE and mp4.exists() and (no_ctx or ctx.exists()):
         return j0
     t_start = time.time()
-    fade_st = song_e - s if wav else dur - TAIL       # 곡 끝에서 시작
-    fade_d = min(FADE, dur - fade_st)                 # 곡 끝~컷 여유(>=1.0초) 안에서만
+    fade_d = min(FADE, dur - (song_e - s if wav else dur - TAIL))      # 곡 끝~컷 안에서만(곡 끝 +TAIL 초 안에서는 곡 끝에서 시작, tail_cut 연장으로 더 길면 컷 앞 FADE 초)
+    fade_st = dur - fade_d
     assert fade_st >= 0 and fade_d >= TAIL_MIN - 1e-6 and fade_st + fade_d <= dur + 1e-6, (fade_st, fade_d, dur)
     vf = f"fade=t=out:st={fade_st:.3f}:d={fade_d:.3f}"
     af = f"afade=t=in:d={DECLICK},afade=t=out:st={fade_st:.3f}:d={fade_d:.3f}" + (",alimiter=limit=0.891:level=0" if LIMITER else "")      # 리미터는 옵션(-1dBFS, level=0 = 자동 음량 보정 끔)
@@ -287,7 +298,9 @@ def selftest():
     assert FADE >= TAIL >= 1.0 and RULE == "v5-bounds"
     sr, pcm = SR, np.full(SR * 20, 3000, np.int16)            # 0~20초 일정한 소리(곡 중앙값 수준), 곡 끝 10초
     a = np.zeros((40, 3), np.float32)
-    assert tail_cut(pcm, a, -20.0, 10.0, 10.0) == 11.0         # 말 없음: 곡 끝 +1.0초
+    assert 12.5 < tail_cut(pcm, a, -20.0, 10.0, 10.0) <= 10.0 + TAIL_EXT       # 말 없음, 컷에서도 큰 소리가 이어짐: 상한 곡 끝 +TAIL_EXT 까지 연장
+    p2 = pcm.copy(); p2[int(SR * 11.5):] = 10                  # 11.5초에 소리가 끝나면 그 근처(11.4~11.7)에서 컷
+    assert 11.4 < tail_cut(p2, a, -20.0, 10.0, 10.0) < 11.7
     a[20:, 1] = 0.9                                          # 점수 창 10초~ 말소리
     assert abs(tail_cut(pcm, a, -20.0, 10.0, 10.0) - 10.3) < 1e-9      # 곡 끝에 말이 이미 시작: 최소 +0.3초
     a[:, 1], a[21:, 1] = 0.0, 0.9                            # 창 10.5초~ 말소리(중심 10.99초 근처 프레임부터)
