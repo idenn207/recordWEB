@@ -2,6 +2,8 @@
 기준 프레임 = 확인된 라이브 구간(data/refs.json)의 썸네일. 기준이 없는 채널은 호출하지 말고 검토 대기로 보낸다.
 사용: python scene.py <날짜> <채널명 일부> <기준 날짜,...> <segments.json 입력> <출력>  [thr=0.18] [refs=<json: [{date,start,end}]>]"""
 import json, os, subprocess, sys, urllib.parse, urllib.request
+import nas_auth
+from nas_auth import ffargs
 from pathlib import Path
 import numpy as np
 
@@ -15,7 +17,7 @@ def url_of(date, who):
     local = sorted(Path("data/vod/legacy").glob(f"{date}_{who}.mp4"))      # 내려받은 다시보기가 있으면 그것을 쓴다
     if local:
         return str(local[0])
-    items = json.load(urllib.request.urlopen(f"{API}/ls?path={q('/app/chzzk')}"))["items"]
+    items = json.load(nas_auth.urlopen(f"{API}/ls?path={q('/app/chzzk')}"))["items"]
     f = next(i for i in items if date in i["name"] and who in i["name"] and not i["locked"])
     return f"{API}/download?path={q(f['path'])}"
 
@@ -24,7 +26,7 @@ def thumbs(url, s, e):
     """[s,e) 초의 키프레임을 48x27 회색으로. 키프레임만 디코딩하므로 1080p60 도 수 초면 된다.
     원격 파일이 응답 없이 멈추는 경우가 있어 읽기 제한(rw_timeout)과 전체 타임아웃을 두고, 실패하면 빈 배열(= 장면을 못 읽음)을 돌려준다."""
     try:
-        raw = subprocess.run(["ffmpeg", "-v", "error", "-threads", "2", "-rw_timeout", "15000000", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), "-i", url, "-an",
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-threads", "2", "-rw_timeout", "15000000", "-skip_frame", "nokey", "-ss", str(s), "-t", str(e - s), *ffargs(url), "-i", url, "-an",
                               "-vf", f"scale={W}:{H},format=gray", "-fps_mode", "vfr", "-f", "rawvideo", "-"], capture_output=True, check=True, timeout=60, **_cf).stdout
     except (subprocess.SubprocessError, OSError):
         return np.zeros((0, W * H), np.float32)

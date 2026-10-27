@@ -9,6 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import limits
+import nas_auth
+from nas_auth import ffargs
 
 ROOT = Path(__file__).resolve().parent.parent
 API = "http://192.168.0.10:5080/api/files"
@@ -48,7 +50,7 @@ def select(items):
 
 
 def index():
-    items = json.load(urllib.request.urlopen(f"{API}/ls?path={urllib.parse.quote('/app/chzzk', safe='')}"))["items"]
+    items = json.load(nas_auth.urlopen(f"{API}/ls?path={urllib.parse.quote('/app/chzzk', safe='')}"))["items"]
     rows = select(items)
     old = {r["slug"]: r for r in json.load(open(IDX, encoding="utf8"))} if IDX.exists() else {}
     legacy = {f: duration(f) for f in (ROOT / "data/vod/legacy").glob("2026-10-*.wav")}
@@ -71,7 +73,7 @@ def ingest(r):
         return
     part = wav.with_suffix(".part.wav")
     rr = limits.net_MBps("lan") / NIN / (r["size"] / r["dur"] / 1e6)     # 입력 길이 대비 읽기 배속 = (MB/s 예산) / (원본 비트레이트 MB/s)
-    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", "2", "-readrate", f"{rr:.1f}", "-rw_timeout", "60000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10", "-i", url_of(r["path"]),
+    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", "2", "-readrate", f"{rr:.1f}", "-rw_timeout", "60000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "10", *ffargs(url_of(r["path"])), "-i", url_of(r["path"]),
            "-vn", "-ac", "1", "-ar", "16000", "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_s16le", str(part)]
     p = subprocess.run(cmd, capture_output=True, text=True, creationflags=LOW)
     got = (part.stat().st_size - 44) / 32000 if part.exists() else 0

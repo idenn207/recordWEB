@@ -20,6 +20,7 @@ TAIL_EXT, TAIL_LOUD = 3.0, 20.0         # 컷에서도 소리가 곡 중앙값-T
 TAIL, TAIL_MIN, TAIL_SP, TAIL_DB = 1.0, 0.3, 0.15, 25.0       # 종료 컷은 곡 끝보다 최소 TAIL 초 뒤. 단 그 안에 들리는 말소리(Speech>TAIL_SP, 곡 중앙값-TAIL_DB 이상)가 시작하면 그 직전(곡 끝+TAIL_MIN 이상)
 LIMITER = os.environ.get("SONG_LIMITER") == "1" or "--limiter" in sys.argv      # 기본 꺼짐: alimiter 는 보컬 구간에서 음량을 눌러 펌핑(사용자 불만)
 import limits
+from nas_auth import ffargs
 THREADS, READRATE = max(1, limits.cpu_cores() // 2), limits.net_MBps("lan") / 2 / 1.1    # 실측(2026-10-26): -readrate 는 1080p60 ts 에서 처리를 3배 느리게 했다(60초 클립 37초 -> 12.7초). 원본 비트레이트가 1MB/s 급이라 읽기량은 상한(100MB/s)보다 훨씬 작아 제거. shortcut: 동시 2작업 가정(--jobs 기본), 원본 최대 ~1.06MB/s(NAS 61개 실측)라서 배속 = (LAN 예산/작업수)/1.1; --jobs 를 올리면 같이 조정
 LOW = 0x4000  # BELOW_NORMAL_PRIORITY_CLASS (Windows). 다른 OS 에서는 무시
 _cf = dict(creationflags=LOW) if os.name == "nt" else {}
@@ -43,7 +44,7 @@ def probe(path):
 
 def audio(src, t, d):
     """src 의 t초부터 d초 16kHz mono float32 (-ss 입력 앞: HTTP 에서 필요한 구간만 읽음)."""
-    r = sh(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-t", f"{d:.3f}", "-i", src, "-vn", "-ac", "1", "-ar", SR, "-f", "s16le", "-"], text=False)
+    r = sh(["ffmpeg", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-t", f"{d:.3f}", *ffargs(src), "-i", src, "-vn", "-ac", "1", "-ar", SR, "-f", "s16le", "-"], text=False)
     return np.frombuffer(r.stdout, "<i2").astype(np.float32)
 
 
@@ -59,7 +60,7 @@ def offset(src, wav, win=300.0):
     """VOD(wav) 시각 - 원본(src) 시각. 3지점(15/50/85%)이 0.05초 안에서 일치하고 피크가 뚜렷해야 반환."""
     from snap import pcm_of
     w = pcm_of(wav)
-    dur = float(sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", src]).stdout)
+    dur = float(sh(["ffprobe", "-v", "error", *ffargs(src), "-show_entries", "format=duration", "-of", "csv=p=0", src]).stdout)
     res = []
     for f in (0.15, 0.5, 0.85):
         t = dur * f
@@ -85,7 +86,7 @@ def encode(src, t0, t1, out, vf=None, af=None, chap=None, gpu=True, br="8M", mr=
     rel = f"{t0 - s0:.4f}"
     vf = f"trim=start={rel},setpts=PTS-STARTPTS" + (f",{vf}" if vf else "") + (",scale=1280:720" if chap else "")   # 확인용(ctx20)은 720p
     af = f"atrim=start={rel},asetpts=PTS-STARTPTS" + (f",{af}" if af else "")
-    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", str(THREADS)] + (["-hwaccel", "cuda"] if gpu else []) + ["-ss", f"{s0:.3f}", "-i", src] + (["-i", chap] if chap else []) + ["-t", f"{t1 - t0:.3f}", "-map", "0:v:0", "-map", "0:a:0"]
+    cmd = ["ffmpeg", "-v", "error", "-y", "-threads", str(THREADS)] + (["-hwaccel", "cuda"] if gpu else []) + ["-ss", f"{s0:.3f}", *ffargs(src), "-i", src] + (["-i", chap] if chap else []) + ["-t", f"{t1 - t0:.3f}", "-map", "0:v:0", "-map", "0:a:0"]
     cmd += ["-vf", vf, "-af", af] + v + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-map_chapters", "1" if chap else "-1", "-movflags", "+faststart", out + ".part.mp4"]
     try:
         sh(cmd, retries=2)
