@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useConfig } from "@/entities/config";
 import {
@@ -17,17 +17,20 @@ import {
   Button,
   EmptyState,
   Icon,
+  IconButton,
   ListSkeleton,
   Notice,
   PageHeader,
+  PillSelect,
+  type PillOption,
   RowMenu,
   type RowMenuItem,
-  Select,
   TextInput,
   useToast,
 } from "@/shared/ui";
 
 type SortKey = "name" | "mtime" | "size";
+type SortValue = `${SortKey}-${"asc" | "desc"}`;
 type Dialog =
   | { kind: "mkdir" }
   | { kind: "rename"; item: FileItem }
@@ -36,7 +39,26 @@ type Dialog =
 
 const LOCK_REASON = "녹화, 후처리, 업로드 중인 파일은 바꿀 수 없습니다.";
 const TH =
-  "sticky top-14 z-10 bg-muted-bg px-3 py-2 text-left text-xs font-semibold tracking-[0.02em] text-muted";
+  "sticky top-14 z-10 bg-muted-bg px-3 text-left text-[13px] font-semibold text-muted";
+const SORT_OPTIONS: PillOption<SortValue>[] = [
+  { value: "name-asc", label: "이름순" },
+  { value: "name-desc", label: "이름 역순" },
+  { value: "mtime-desc", label: "최신순" },
+  { value: "mtime-asc", label: "오래된순" },
+  { value: "size-desc", label: "큰 파일순" },
+  { value: "size-asc", label: "작은 파일순" },
+];
+const VIDEO = ["ts", "mp4", "mkv", "flv", "webm", "mov", "m4v"];
+const AUDIO = ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus"];
+const kindIcon = (it: FileItem) => {
+  if (it.is_dir) return "folder" as const;
+  const e = it.ext.replace(/^\./, "").toLowerCase();
+  return VIDEO.includes(e)
+    ? ("video" as const)
+    : AUDIO.includes(e)
+      ? ("audio" as const)
+      : ("file" as const);
+};
 
 /** 파일명은 남는 폭을 모두 쓰고(Filename-Wins), 나머지는 고정 폭 열로 양보한다. */
 export function FileExplorer() {
@@ -63,6 +85,8 @@ export function FileExplorer() {
     setSelected(new Set());
   }, [path, filter, showHidden]);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [editing, setEditing] = useState(false);
+  const crumbRef = useRef<HTMLElement>(null);
 
   const list = useFileList(path, showHidden);
   const enabled = config.data?.fileManagerEnabled;
@@ -73,6 +97,20 @@ export function FileExplorer() {
   useEffect(() => {
     if (list.data?.path) setPathInput(list.data.path);
     setSelected(new Set());
+  }, [list.data?.path]);
+
+  // 이름 변경, 삭제 등으로 사라진 항목은 선택에서 뺀다
+  useEffect(() => {
+    const live = new Set((list.data?.items ?? []).map((i) => i.path));
+    setSelected((s) => {
+      const n = new Set([...s].filter((p) => live.has(p)));
+      return n.size === s.size ? s : n;
+    });
+  }, [list.data?.items]);
+
+  useEffect(() => {
+    setEditing(false);
+    crumbRef.current?.scrollTo({ left: 1e6 });
   }, [list.data?.path]);
 
   const items = useMemo(() => {
@@ -130,7 +168,61 @@ export function FileExplorer() {
         className={cn("ml-1 inline", sort.desc && "rotate-180")}
       />
     ) : null;
-  const parent = path ? path.replace(/[\\/][^\\/]+[\\/]?$/, "") || path : null;
+  const ariaSort = (key: SortKey) =>
+    sort.key === key ? (sort.desc ? "descending" : "ascending") : "none";
+  const rootList = roots.data?.roots ?? [];
+  // Windows 경로(드라이브 문자, UNC)는 대소문자를 가리지 않고, 경계는 구분자로만 판정한다
+  const norm = (p: string) => {
+    const t = p.length > 1 ? p.replace(/[\\/]+$/, "") : p;
+    return /^([a-z]:|\\\\)/i.test(t) ? t.toLowerCase().replace(/\//g, "\\") : t;
+  };
+  const within = (p: string, r: string) => {
+    const a = norm(p);
+    const b = norm(r);
+    const d = b.includes("\\") ? "\\" : "/";
+    return a === b || a.startsWith(b.endsWith(d) ? b : b + d);
+  };
+  const root =
+    rootList
+      .filter((r) => path && within(path, r))
+      .sort((a, b) => b.length - a.length)[0] ?? null;
+  const rootOptions: PillOption<string>[] = rootList.map((r) => {
+    const d = disks.data?.usages.find((u) => u.path === r);
+    return {
+      value: r,
+      label: r,
+      hint: d ? `${formatBytes(d.free)} 남음` : undefined,
+      hintClass:
+        d && d.percent >= 90
+          ? "text-rec"
+          : d && d.percent >= 75
+            ? "text-warn"
+            : undefined,
+    };
+  });
+  // 루트부터 현재 폴더까지 나눠 각 폴더를 눌러 이동하게 한다
+  const sep = path?.includes("\\") && !path.includes("/") ? "\\" : "/";
+  // Linux 에서는 역슬래시도 파일명의 일부다
+  const splitter = sep === "\\" ? /[\\/]/ : /\//;
+  const crumbs: { label: string; path: string }[] = [];
+  if (path) {
+    let acc = root ?? "";
+    if (root) crumbs.push({ label: root, path: root });
+    for (const seg of path
+      .slice(root?.length ?? 0)
+      .split(splitter)
+      .filter(Boolean)) {
+      acc = acc
+        ? acc.replace(/[\\/]$/, "") + sep + seg
+        : (path.startsWith("/") ? "/" : "") + seg;
+      crumbs.push({ label: seg, path: acc });
+    }
+  }
+  const atRoot = !!path && !!root && norm(path) === norm(root);
+  const parent =
+    path && !atRoot
+      ? path.replace(sep === "\\" ? /[\\/][^\\/]+[\\/]?$/ : /\/[^/]+\/?$/, "") || path
+      : null;
 
   const doUpload = (files: FileItem[]) =>
     enqueue.mutate(
@@ -241,106 +333,140 @@ export function FileExplorer() {
         </Button>
       </PageHeader>
 
-      <ul
-        className="mb-3 flex min-h-7 flex-wrap gap-2"
-        aria-label="디스크 사용량"
-      >
-        {disks.data?.usages.map((d) => (
-          <li key={d.path}>
-            <button
-              type="button"
-              onClick={() => setPath(d.path)}
-              className="inline-flex items-center gap-2 rounded-full border border-line bg-muted-bg px-3 py-1 text-xs hover:bg-tint"
-              title={`${d.path} 로 이동`}
-            >
-              <span className="max-w-48 truncate font-mono font-semibold">
-                {d.label ?? d.path}
-              </span>
-              <span
-                className={cn(
-                  "tnum",
-                  d.percent >= 90 ? "text-rec" : "text-muted",
-                )}
-              >
-                {d.percent}% · {formatBytes(d.free)} 남음
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <form
-        className="mb-3 flex flex-wrap items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setPath(pathInput.trim() || null);
-        }}
-      >
-        {roots.data && roots.data.roots.length > 1 && (
-          <Select
-            aria-label="루트 선택"
-            className="w-auto! font-mono text-[13px]"
-            value={roots.data.roots.find((r) => path?.startsWith(r)) ?? ""}
-            onChange={(e) => setPath(e.target.value)}
+      <div className="mb-4 flex flex-col gap-2" data-file-toolbar>
+        <div className="flex flex-wrap items-center gap-2">
+          {rootOptions.length > 0 && (
+            <PillSelect
+              label="루트 선택"
+              mono
+              className="w-full sm:w-60"
+              value={root ?? ""}
+              options={rootOptions}
+              onChange={(r) => setPath(r)}
+              data-ctl
+            />
+          )}
+          <IconButton
+            data-ctl
+            icon="up"
+            label="상위 폴더"
+            className="size-10 border-ink/15"
+            onClick={() => parent && setPath(parent)}
+            disabled={!parent || parent === path}
+          />
+          <div
+            data-ctl
+            className="flex h-10 min-w-0 flex-1 basis-64 items-center rounded-full border border-ink/15 pl-2 pr-1 focus-within:border-brand"
           >
-            {roots.data.roots.map((r) => (
-              <option key={r}>{r}</option>
-            ))}
-          </Select>
-        )}
-        <Button
-          icon="up"
-          aria-label="상위 폴더"
-          onClick={() => parent && setPath(parent)}
-          disabled={!parent || parent === path}
-        />
-        <TextInput
-          aria-label="경로"
-          value={pathInput}
-          onChange={(e) => setPathInput(e.target.value)}
-          className="min-w-64 flex-1 font-mono text-[13px]"
-          placeholder="경로를 입력하고 Enter"
-        />
-        <div className="relative">
-          <Icon
-            name="search"
-            size={15}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted"
-          />
-          <TextInput
-            aria-label="이름 검색"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="w-44 pl-8"
-            placeholder="이름 검색"
-          />
+            {editing ? (
+              <form
+                className="flex h-full min-w-0 flex-1 items-center"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setPath(pathInput.trim() || null);
+                  setEditing(false);
+                }}
+              >
+                <input
+                  autoFocus
+                  aria-label="경로"
+                  value={pathInput}
+                  onChange={(e) => setPathInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    setEditing(false);
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector<HTMLElement>('[aria-label="경로 직접 입력"]')
+                        ?.focus(),
+                    );
+                  }}
+                  className="h-full w-full min-w-0 bg-transparent px-2 font-mono text-sm text-ink"
+                />
+              </form>
+            ) : (
+              <nav
+                aria-label="경로"
+                ref={crumbRef}
+                className="flex h-full min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none]"
+              >
+                {crumbs.map((c, i) => (
+                  <span key={c.path} className="flex shrink-0 items-center">
+                    {i > 0 && (
+                      <Icon
+                        name="chevron"
+                        size={14}
+                        className="-rotate-90 text-muted"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPath(c.path)}
+                      aria-current={i === crumbs.length - 1 ? "page" : undefined}
+                      className={cn(
+                        "h-8 max-w-56 truncate rounded-full px-2.5 text-sm font-semibold hover:bg-muted-bg",
+                        i === crumbs.length - 1 ? "text-ink" : "text-muted",
+                      )}
+                    >
+                      {c.label}
+                    </button>
+                  </span>
+                ))}
+              </nav>
+            )}
+            <IconButton
+              icon={editing ? "x" : "edit"}
+              label={editing ? "경로 입력 닫기" : "경로 직접 입력"}
+              className="size-8 shrink-0"
+              onClick={() => {
+                if (!editing) setPathInput(path ?? "");
+                setEditing((v) => !v);
+              }}
+            />
+          </div>
         </div>
-        {/* 좁은 화면에서는 열 머리글을 숨기므로 정렬을 선택 상자로 제공한다 */}
-        <Select
-          aria-label="정렬"
-          className="w-auto! sm:hidden"
-          value={`${sort.key}-${sort.desc ? "desc" : "asc"}`}
-          onChange={(e) => {
-            const [key, dir] = e.target.value.split("-");
-            setSort({ key: key as SortKey, desc: dir === "desc" });
-          }}
-        >
-          <option value="name-asc">이름순</option>
-          <option value="name-desc">이름 역순</option>
-          <option value="mtime-desc">최신순</option>
-          <option value="mtime-asc">오래된순</option>
-          <option value="size-desc">큰 파일순</option>
-          <option value="size-asc">작은 파일순</option>
-        </Select>
-        <label className="flex items-center gap-1.5 text-muted">
-          <input
-            type="checkbox"
-            checked={showHidden}
-            onChange={(e) => setShowHidden(e.target.checked)}
+        <div className="flex flex-wrap items-center gap-2">
+          <div data-ctl className="relative h-10 min-w-36 flex-1 sm:max-w-80">
+            <Icon
+              name="search"
+              size={16}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <TextInput
+              aria-label="이름 검색"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              className="pl-10"
+              placeholder="이름 검색"
+            />
+          </div>
+          <PillSelect
+            label="정렬"
+            className="w-40"
+            value={`${sort.key}-${sort.desc ? "desc" : "asc"}` as SortValue}
+            options={SORT_OPTIONS}
+            onChange={(v) => {
+              const [key, dir] = v.split("-");
+              setSort({ key: key as SortKey, desc: dir === "desc" });
+            }}
+            data-ctl
           />
-          숨김 파일
-        </label>
-      </form>
+          <button
+            type="button"
+            data-ctl
+            aria-pressed={showHidden}
+            onClick={() => setShowHidden((v) => !v)}
+            className={cn(
+              "inline-flex h-10 items-center rounded-full border px-4 text-sm font-semibold transition-colors",
+              showHidden
+                ? "border-brand text-brand"
+                : "border-ink/15 text-muted hover:bg-muted-bg",
+            )}
+          >
+            숨김 파일
+          </button>
+        </div>
+      </div>
 
       {(roots.error || list.error) && (
         <Notice tone="rec">
@@ -355,12 +481,12 @@ export function FileExplorer() {
         />
       )}
       {list.data && items.length > 0 && (
-        <div className="min-h-48 overflow-x-clip rounded-card border border-line bg-card">
+        <div className="min-h-48 overflow-x-clip">
           {selected.size > 0 && (
             <div
               role="region"
               aria-label="선택한 항목 작업"
-              className="sticky left-9 top-14 z-20 -mb-11 ml-9 flex h-11 w-[calc(100%-2.25rem)] items-center gap-1 border-b border-line bg-tint px-3 sm:gap-2"
+              className="sticky left-9 top-14 z-20 -mb-12 ml-9 flex h-12 w-[calc(100%-2.25rem)] items-center gap-1 rounded-r-xl bg-tint px-3 sm:gap-2"
             >
               <span className="mr-1 whitespace-nowrap text-sm font-semibold text-ink">
                 {selected.size}개 선택
@@ -420,10 +546,10 @@ export function FileExplorer() {
               </Button>
             </div>
           )}
-          <table className="w-full border-collapse sm:min-w-[40rem]">
+          <table className="w-full border-collapse">
             <thead>
-              <tr className="h-11">
-                <th className={`${TH} relative w-9`}>
+              <tr className="h-12">
+                <th className={`${TH} relative w-9 rounded-l-xl`}>
                   <label className="absolute inset-0 flex cursor-pointer items-center justify-center">
                     <input
                       type="checkbox"
@@ -439,16 +565,7 @@ export function FileExplorer() {
                     />
                   </label>
                 </th>
-                <th
-                  className={TH}
-                  aria-sort={
-                    sort.key === "name"
-                      ? sort.desc
-                        ? "descending"
-                        : "ascending"
-                      : "none"
-                  }
-                >
+                <th className={TH} aria-sort={ariaSort("name")}>
                   <button
                     type="button"
                     onClick={() => toggleSort("name")}
@@ -457,16 +574,9 @@ export function FileExplorer() {
                     이름{sortMark("name")}
                   </button>
                 </th>
-                <th className={`${TH} w-[7ch] max-sm:hidden`}>종류</th>
                 <th
-                  className={`${TH} w-[10ch] text-right max-sm:hidden`}
-                  aria-sort={
-                    sort.key === "size"
-                      ? sort.desc
-                        ? "descending"
-                        : "ascending"
-                      : "none"
-                  }
+                  className={`${TH} w-28 text-right max-sm:hidden`}
+                  aria-sort={ariaSort("size")}
                 >
                   <button
                     type="button"
@@ -477,14 +587,8 @@ export function FileExplorer() {
                   </button>
                 </th>
                 <th
-                  className={`${TH} w-[18ch] text-right max-sm:hidden`}
-                  aria-sort={
-                    sort.key === "mtime"
-                      ? sort.desc
-                        ? "descending"
-                        : "ascending"
-                      : "none"
-                  }
+                  className={`${TH} w-48 text-right max-sm:hidden`}
+                  aria-sort={ariaSort("mtime")}
                 >
                   <button
                     type="button"
@@ -494,7 +598,7 @@ export function FileExplorer() {
                     수정한 날짜{sortMark("mtime")}
                   </button>
                 </th>
-                <th className={`${TH} w-12`}>
+                <th className={`${TH} w-14 rounded-r-xl`}>
                   <span className="sr-only">작업</span>
                 </th>
               </tr>
@@ -506,8 +610,8 @@ export function FileExplorer() {
                   <tr
                     key={it.path}
                     className={cn(
-                      "border-t border-line hover:bg-tint",
-                      on && "bg-tint",
+                      "h-14 hover:bg-muted-bg",
+                      on && "bg-tint hover:bg-tint",
                     )}
                   >
                     <td className="relative w-9 px-3 py-2">
@@ -528,55 +632,57 @@ export function FileExplorer() {
                       </label>
                     </td>
                     <td className="max-w-0 px-3 py-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <Icon
-                          name={it.is_dir ? "folder" : "file"}
-                          size={17}
-                          className="shrink-0 text-muted"
+                          name={kindIcon(it)}
+                          size={20}
+                          className={cn(
+                            "shrink-0",
+                            it.is_dir ? "text-brand" : "text-muted",
+                          )}
                         />
-                        {it.is_dir ? (
-                          <button
-                            type="button"
-                            onClick={() => setPath(it.path)}
-                            className="min-h-6 min-w-0 truncate text-left font-semibold hover:text-link hover:underline"
-                            title={it.name}
-                          >
-                            {it.name}
-                          </button>
-                        ) : (
-                          <a
-                            href={fileApi.downloadUrl(it.path)}
-                            className="min-h-6 min-w-0 truncate py-0.5 hover:text-link hover:underline"
-                            title={`${it.name} (다운로드)`}
-                          >
-                            {it.name}
-                          </a>
-                        )}
+                        <div className="min-w-0 flex-1">
+                          {it.is_dir ? (
+                            <button
+                              type="button"
+                              onClick={() => setPath(it.path)}
+                              className="block max-w-full truncate py-0.5 text-left text-base font-semibold hover:text-link hover:underline"
+                              title={it.name}
+                            >
+                              {it.name}
+                            </button>
+                          ) : (
+                            <a
+                              href={fileApi.downloadUrl(it.path)}
+                              className="block truncate py-0.5 text-base hover:text-link hover:underline"
+                              title={`${it.name} (다운로드)`}
+                            >
+                              {it.name}
+                            </a>
+                          )}
+                          <div className="tnum whitespace-nowrap text-[13px] text-muted sm:hidden">
+                            {!it.is_dir && `${formatBytes(it.size)} · `}
+                            {it.mtime.slice(5, 16)}
+                          </div>
+                        </div>
                         {it.locked && (
                           <span
-                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-muted-bg px-2 py-0.5 text-xs font-semibold text-rec"
+                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-muted-bg px-2.5 py-0.5 text-[13px] font-semibold text-rec"
                             title={LOCK_REASON}
                           >
-                            <Icon name="lock" size={12} />
+                            <Icon name="lock" size={13} />
                             녹화 중
                           </span>
                         )}
                       </div>
-                      <div className="tnum mt-0.5 pl-[25px] text-xs text-muted sm:hidden">
-                        {!it.is_dir && `${formatBytes(it.size)} · `}
-                        {it.mtime}
-                      </div>
                     </td>
-                    <td className="px-3 py-2 text-muted max-sm:hidden">
-                      {it.ext}
-                    </td>
-                    <td className="tnum px-3 py-2 text-right text-[13px] text-muted max-sm:hidden">
+                    <td className="tnum px-3 py-2 text-right text-sm text-muted max-sm:hidden">
                       {it.is_dir ? "" : formatBytes(it.size)}
                     </td>
-                    <td className="tnum whitespace-nowrap px-3 py-2 text-right text-[13px] text-muted max-sm:hidden">
+                    <td className="tnum whitespace-nowrap px-3 py-2 text-right text-sm text-muted max-sm:hidden">
                       {it.mtime}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-2 py-2 text-right">
                       <RowMenu
                         label={`${it.name} 작업 메뉴`}
                         items={menuFor(it)}

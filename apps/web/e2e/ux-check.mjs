@@ -68,6 +68,53 @@ const rects = (sel) => page.locator(sel).evaluateAll((els) => els.map((e) => { c
 
 await login();
 
+// 1-0. 파일 도구 줄: 선택 상자의 글자와 화살표가 겹치지 않고, 컨트롤끼리 교차하지 않으며, 경로 입력칸을 열고 닫아도 주변이 움직이지 않는다.
+for (const theme of THEMES) {
+  for (const [w, h] of VIEWPORTS) {
+    await open('/files', w, h, theme);
+    const tag = `files ${w}px ${theme}`;
+    // (a) 가장 긴 루트 이름을 넣어도 글자 오른쪽 끝과 화살표 왼쪽 끝 사이가 8px 이상
+    const gap = await page.evaluate(() => {
+      const t = document.querySelector('[aria-label="루트 선택"]');
+      const txt = t?.querySelector('[data-pill-text]');
+      const svg = t?.querySelector('svg');
+      if (!txt || !svg) return null;
+      const measure = () => Math.round((svg.getBoundingClientRect().left - txt.getBoundingClientRect().right) * 10) / 10;
+      const normal = measure();
+      const keep = txt.textContent;
+      txt.textContent = '/app/xspaces/아주아주/긴/폴더/이름이/들어간/루트/경로/예시/입니다';
+      const long = measure();
+      txt.textContent = keep;
+      return { normal, long };
+    });
+    check(`${tag} 루트 선택: 글자와 화살표 간격 8px 이상(긴 이름 포함)`, !!gap && gap.normal >= 8 && gap.long >= 8, JSON.stringify(gap));
+    // (b) 도구 줄 컨트롤 쌍의 직사각형이 교차하지 않는다
+    const hit = await page.evaluate(() => {
+      const els = [...document.querySelectorAll('[data-file-toolbar] [data-ctl]')];
+      const rs = els.map((e) => e.getBoundingClientRect());
+      const bad = [];
+      for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
+        const a = rs[i], b = rs[j];
+        if (a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5) bad.push(`${i}x${j}`);
+      }
+      return { n: els.length, bad };
+    });
+    check(`${tag} 도구 줄 컨트롤이 서로 겹치지 않는다`, hit.n >= 5 && !hit.bad.length, `${hit.n}개 ${hit.bad.join(',')}`);
+    // (c) 경로 입력칸을 열고 닫아도 주변 요소 좌표 불변
+    const around = '[data-file-toolbar] [data-ctl], thead th';
+    const before = await rects(around);
+    await page.getByRole('button', { name: '경로 직접 입력' }).click();
+    await page.waitForTimeout(150);
+    const opened = (await page.getByRole('textbox', { name: '경로' }).count()) === 1;
+    const during = await rects(around);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+    const closed = (await page.getByRole('textbox', { name: '경로' }).count()) === 0;
+    const after = await rects(around);
+    check(`${tag} 경로 입력칸 열기와 닫기: 주변 좌표 불변`, opened && closed && JSON.stringify(before) === JSON.stringify(during) && JSON.stringify(before) === JSON.stringify(after), opened ? '' : '입력칸이 열리지 않음');
+  }
+}
+
 // 1. 파일 표: 선택해도 아무것도 움직이지 않고, 같은 자리를 다시 누르면 같은 체크박스가 꺼진다.
 for (const [w, h] of VIEWPORTS) {
   await open('/files', w, h, 'dark');
@@ -83,7 +130,7 @@ for (const [w, h] of VIEWPORTS) {
     await page.waitForTimeout(250);
     const after = await rects(sel);
     // 나타나야 할 작업 영역이 실제로 눈에 보이는가(다른 요소에 가려지지 않는가). 좌표 불변만으로는 숨은 UI를 못 잡는다.
-    const visible = await page.evaluate(() => { const r = document.querySelector('[aria-label="선택한 항목 작업"]'); if (!r) return false; const b = r.getBoundingClientRect(); const el = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return !!el && r.contains(el); });
+    const visible = await page.evaluate(() => { const r = document.querySelector('[aria-label="선택한 항목 작업"]'); if (!r) return false; const bs = [r, ...r.querySelectorAll('button')]; return bs.every((n) => { const b = n.getBoundingClientRect(); const v = b.left >= 0 && b.right <= innerWidth && b.top >= 0 && b.bottom <= innerHeight; return v && [0.15, 0.5, 0.85].every((fx) => { const el = document.elementFromPoint(b.x + b.width * fx, b.y + b.height / 2); return !!el && n.contains(el); }); }); });
     check(`files ${w}px 행${idx === 0 ? '(첫)' : '(끝)'} 선택 시 작업 영역이 보인다`, visible);
     check(`files ${w}px 행${idx === 0 ? '(첫)' : '(끝)'} 선택 후 체크박스 좌표 불변`, JSON.stringify(before) === JSON.stringify(after));
     await page.mouse.click(pos.x, pos.y); // 같은 자리 재클릭
@@ -117,6 +164,22 @@ for (const [w, h] of VIEWPORTS) {
   check(`녹화 ${w}px 보기 방식이 새로고침 뒤에도 유지된다`, (await page.getByRole('radio', { name: '리스트로 보기' }).getAttribute('aria-checked')) === 'true');
 }
 
+// 1-1b. 플랫폼 토글: 치지직과 스페이스의 채널이 섞이지 않고, 바꿔도 탭 위치가 움직이지 않으며, URL 로 기억된다.
+for (const [w, h] of VIEWPORTS) {
+  await open('/', w, h, 'dark');
+  await page.getByRole('radio', { name: /^치지직/ }).click();
+  await page.waitForTimeout(250);
+  const marks = () => page.evaluate(() => ({ chzzk: document.querySelectorAll('main img[src*="chzzk_icon"]').length, x: document.querySelectorAll('main span[title="X 스페이스"]').length }));
+  const pos = () => page.evaluate(() => { const e = document.querySelector('[role=tablist]'); const r = e.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y)].join(','); });
+  const before = await pos();
+  await page.getByRole('radio', { name: /^스페이스/ }).click();
+  await page.waitForTimeout(300);
+  const m = await marks();
+  check(`녹화 ${w}px 스페이스 토글: 치지직 채널이 섞이지 않는다`, m.x > 0 && m.chzzk === 0, JSON.stringify(m));
+  check(`녹화 ${w}px 플랫폼 토글: 탭 위치 불변`, (await pos()) === before);
+  check(`녹화 ${w}px 플랫폼 선택이 URL 에 저장된다`, page.url().includes('platform=x'));
+}
+
 // 1-2. 탭을 바꿔 내용 길이가 달라져 스크롤바가 생기거나 사라져도 화면이 가로로 움직이지 않는다.
 for (const [w, h] of VIEWPORTS) {
   await open('/', w, 560, 'dark');
@@ -130,6 +193,13 @@ for (const [w, h] of VIEWPORTS) {
     seen.add(await probe());
   }
   check(`녹화 ${w}px 탭을 바꿔도 가로 위치와 폭 불변(스크롤바 유무와 무관)`, seen.size === 1, [...seen].join(' / '));
+}
+
+// 1-3. 파일 화면: 모든 행의 높이가 같다(긴 이름, 녹화 중 배지가 있어도 두 줄로 꺾이지 않는다).
+for (const [w, h] of VIEWPORTS) {
+  await open('/files', w, h, 'dark');
+  const hs = await page.locator('tbody tr').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+  check(`files ${w}px 행 높이가 모두 같다`, hs.length > 0 && Math.max(...hs) - Math.min(...hs) <= 1, hs.join(','));
 }
 
 // 2. 설정: 값을 바꿔 변경 상태가 되어도 폼 요소가 움직이지 않는다.
@@ -164,7 +234,7 @@ const audit = () => {
       if ((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) < 4.5) low.push(el.textContent.trim().slice(0, 18));
       if (parseFloat(cs.fontSize) < 12) small.push(el.textContent.trim().slice(0, 18));
     }
-    if (['BUTTON', 'A', 'INPUT'].includes(el.tagName) && (r.height < 24 || r.width < 24) && el.type !== 'checkbox' && !(el.type === 'hidden')) tiny.push(`${el.tagName} ${Math.round(r.width)}x${Math.round(r.height)} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 12)}`);
+    if (['BUTTON', 'A', 'INPUT'].includes(el.tagName) && (r.height < 24 || r.width < 24) && el.type !== 'checkbox' && !(el.type === 'hidden') && el.getAttribute('aria-hidden') !== 'true') tiny.push(`${el.tagName} ${Math.round(r.width)}x${Math.round(r.height)} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 12)}`);
     if (el.tagName === 'TH' && el.textContent.trim()) { const rg = document.createRange(); rg.selectNodeContents(el); const tops = [...rg.getClientRects()].filter((q) => q.width > 0).map((q) => q.top).sort((x, y) => x - y); if (tops.length && tops.at(-1) - tops[0] > 12) wrapped.push(el.textContent.trim().slice(0, 12)); }
   }
   return { hscroll: document.documentElement.scrollWidth > document.documentElement.clientWidth, low: [...new Set(low)], small: [...new Set(small)], tiny: [...new Set(tiny)], wrapped };
