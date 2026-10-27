@@ -10,6 +10,7 @@
 사용: python route.py <segments.json 입력> <출력> [has_refs=1]"""
 import json, sys
 from scene_multi import P as MP    # 영상 움직임 임계값(motion/weak)을 한 곳에서
+from n_signals import fire         # 등록부 없는 N 오디오 신호(말소리보다 작은 BGM, 곡 중 말 덩어리)
 
 P = dict(wait_s=300, scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
 # shortcut: 임계값은 3개 채널에서 정함, 새 채널의 같은 채널 기준이 쌓이면 채널별 분포로 다시 보정
@@ -51,10 +52,13 @@ def mark_likely(segs, p=P, n_max=20, win=3600):
     """'유력(likely)' 표시(등급은 review 그대로, 사람 검수 전 미검증): review 이고 다중 참조가 live, 길이 125~340초, 방송 시작 5분 이후,
     한 방송에서 곡 후보(keep)가 win 초 안에 n_max 개 이상 몰린 구간에 속하지 않음. known_neg/piano 는 이미 drop/optional 이라 걸러진 뒤에 부른다.
     weak(움직임 25~34.5)와 speech>=0.06(멘트가 섞인 배경 노래) 제외: blind9 에서 likely 정밀도 79% -> 91%, 라이브는 41개 중 1개만 잃음.
+    weak 의 근거: g['bursts']/g['rel_db'](n_signals.fill)가 있으면 그 신호가 N 을 가리킬 때만(g['nsig'] 에 사유), 움직임 대역은 보지 않는다(그룹 제외 hold-out 에서 대역보다 신호가 낫다: n_signals 참조). 신호를 못 구한 후보(점수 캐시 없음)만 옛 움직임 대역으로.
     shortcut: 근거는 blind5/6/8/9 표본(eval_blind.py blind9)뿐, 새 채널 표본이 쌓이면 재보정. speech 는 drop 이 아니라 likely 표시에만 쓴다(라이브 B 에도 0.09 가 있음)"""
     ts = [x["start"] for x in segs if x["keep"]]
     for g in segs:
-        g["weak"] = MP["weak"] <= (g.get("tstd") or 0) <= MP["motion"]      # 움직임이 중간 대역: 라이브 70개 전부 <25, N 중 28개가 이 대역 = 라이브 신호로 약함
+        sig = fire(g)
+        g["nsig"] = sig or []
+        g["weak"] = bool(sig) if sig is not None else MP["weak"] <= (g.get("tstd") or 0) <= MP["motion"]      # 신호가 없을 때의 대역: 라이브 70개 전부 <25, N 중 28개가 이 대역 = 라이브 신호로 약함
         dense = any(sum(a <= t < a + win for t in ts) >= n_max for a in ts if a <= g["start"] < a + win)
         g["likely"] = bool(g.get("tier") == "review" and g.get("multi") == "live" and not g["weak"] and (g.get("speech") or 0) < 0.06 and p["len_lo"] <= g["len"] <= p["len_hi"] and g["start"] >= p["wait_s"] and not dense)
 

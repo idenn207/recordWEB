@@ -23,10 +23,10 @@ def card(g, i, clip=None):
     """증거 카드: 최종 구간, 등급과 이유, 장면 판정, 경계 보정 전(detect)/refine 후/finalize 후, 신호 요약."""
     return dict(
         idx=i, start=g["start"], end=g["end"], len=g["len"], tier=g["tier"], tier_why=g["tier_why"],
-        scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), weak=g.get("weak", False), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
+        scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), weak=g.get("weak", False), nsig=g.get("nsig"), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
         boundary=dict(detect=[g.get("start0", g["start"]), g.get("end0", g["end"])], refine=[g.get("start1", g["start"]), g.get("end1", g["end"])], final=[g["start"], g["end"]],
                       why_snap=g.get("why_snap"), stages=g.get("stages")),
-        signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk")}, clip=clip)
+        signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk", "bursts", "rel_db")}, clip=clip)
 
 
 def run(cmd):
@@ -100,6 +100,8 @@ def main(wav, video, vid, name, force, outroot):
     segs = sc["segs"]
     import piano_gate
     piano_gate.annotate(vid, segs)                               # cache/exp12p/other.json 이 있을 때만 g['piano'] 표시(선택)
+    import n_signals
+    n_signals.fill(segs, wav)                                    # N 오디오 신호(점수 캐시+wav 만 필요, 없으면 건너뜀 -> route 가 옛 움직임 대역으로)
     (O / "cards").mkdir(exist_ok=True)
     for old in (O / "cards").glob("*.json"):
         old.unlink()

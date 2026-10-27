@@ -8,7 +8,8 @@
   D  C + 신호 선택(그룹 제외 학습)           (m=여유: 임계 = 학습 라이브 극값 + m x 학습 라이브 범위)
 분류: drop = 거름(구조 규칙 / tstd / 선택된 신호), weak = 현재 weak 대역(25~34.5)에 있고 거르지 않은 것, 노출 = 나머지(review 로 완성본에 노출).
 라이브 손실 = drop + weak (loso_n 과 같은 정의).
-사용: python experiments/logo_route.py [build|eval] [--rebuild] [--by group|streamer|both] [--cands default|all] [--boot 2000] [--out data/review/blind9/audit/logo_route.json]"""
+  배포 규칙(n_signals.P: 구조 규칙 + tstd>34.5 + 오디오 신호 2개, weak 대역 없음)은 표본 내 값이라 eval 끝에 따로 출력(deployed): 라이브 88 중 걸린 수 0 을 assert.
+사용: python experiments/logo_route.py [build|eval] [--rebuild] [--by group|streamer|both] [--cands default|all|신호,신호] [--boot 2000] [--out data/review/blind9/audit/logo_route.json]"""
 import argparse, json, os, sys
 from pathlib import Path
 
@@ -79,6 +80,23 @@ def load(rebuild=False):
     if rebuild or not SIG.exists():
         return build()
     return pd.read_csv(SIG, keep_default_na=True, na_values=[""], dtype={"vno": str, "tag": str, "multi": str}).fillna({"tag": "", "multi": ""})
+
+
+def with_golden(df):
+    """승인 라이브(golden_v4.json)를 라이브 전용 행으로 덧붙인다(오디오 신호 2개만 채움, 같은 방송 같은 구간이 이미 표에 있으면 건너뜀). 신호 임계가 표 밖 라이브에도 버티는지 보려는 것이라 N 행은 없다.
+    shortcut: 그룹 = 방송(영상번호)로 둬서 스트리머 단위 hold-out 은 방송 단위와 같아진다(스트리머 이름 매핑 생략)."""
+    import n_signals
+    rows = []
+    for s in json.load(open("experiments/golden_v4.json", encoding="utf8"))["songs"]:
+        a, b = s["frozen"]["s"], s["frozen"]["e"]
+        if ((df.vno == s["vid"]) & (np.minimum(df.start + df.len, b) - np.maximum(df.start, a) > 0.5 * (b - a))).any():
+            continue
+        seg = [dict(keep=True, start=a, end=b)]
+        n_signals.fill(seg, Path(f"data/vod/nas/{s['vid']}.wav") if s["vid"].startswith("20") else Path(f"data/vod/{s['vid']}.wav"))
+        if seg[0].get("bursts") is not None:
+            rows.append(dict(key=f"golden/{s['id']}", set="golden", name=f"golden|{s['vid']}", vno=s["vid"], group=f"golden|{s['vid']}", live=1, tag="", len=b - a, start=a,
+                             struct_cls="review", base_cls="review", bursts_per_min=seg[0]["bursts"], rel_db=seg[0]["rel_db"]))
+    return pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
 
 
 def auc(pos, neg):
@@ -234,14 +252,27 @@ def selftest():
     assert ci["L_lost"][0] == 0 and ci["n_groups"] == 4
 
 
+def deployed(df):
+    """배포 규칙(route.mark_likely 가 쓰는 n_signals.fire + 구조 규칙 + tstd>motion)을 신호 표에 그대로 적용한 표본 내 결과. 라이브가 하나라도 걸리면 실패."""
+    import n_signals
+    from scene_multi import P as MP
+    fl = np.array([bool(n_signals.fire(dict(rel_db=r, bursts=b))) for r, b in zip(df.rel_db.fillna(0), df.bursts_per_min.fillna(0))])     # 신호 없는 행(NaN)은 걸지 않음
+    base = ((df.struct_cls == "drop") | (df.tstd > MP["motion"])).to_numpy()
+    res = np.where(base | fl, "drop", "ok")
+    out = {s: tally(df, res, mk) for s, mk in {"blind9": (df.set == "blind9").to_numpy(), "전체": np.ones(len(df), bool)}.items()}
+    assert out["전체"]["L_drop"] == 0, [k for k, r, l in zip(df.key, res, df.live) if l == 1 and r != "ok"]
+    return out, [f"{k}:{t}" for k, t, r, l in zip(df.key, df.tag, res, df.live) if l == 0 and r == "ok"]
+
+
 def main():
     selftest()
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", nargs="?", default="eval", choices=["build", "eval"])
     ap.add_argument("--rebuild", action="store_true")
     ap.add_argument("--by", default="both", choices=["group", "streamer", "both"])
-    ap.add_argument("--cands", default="default", choices=["default", "all"])
+    ap.add_argument("--cands", default="default", help="default | all | 쉼표로 나열한 신호 열 이름")
     ap.add_argument("--boot", type=int, default=2000)
+    ap.add_argument("--golden", action="store_true", help="승인 라이브(golden_v4)를 라이브 전용 행으로 추가해 임계가 표 밖 라이브에도 버티는지 본다")
     ap.add_argument("--margins", default="0,0.1,0.2", help="임계 여유 m 목록(학습 라이브 범위의 비율)")
     ap.add_argument("--out", default="data/review/blind9/audit/logo_route.json")
     a = ap.parse_args()
@@ -249,7 +280,10 @@ def main():
     if a.cmd == "build":
         print(f"신호 표 {len(df)}행 x {df.shape[1]}열 -> {SIG}")
         return
-    cands = CANDS if a.cands == "default" else [c for c in df.columns if df[c].dtype.kind == "f" and c not in ("tstd", "blk", "start", "len", "live", "bok", "tstd_kf", "song_db", "n_kf", "scene", "has_refs", "base_weak")]
+    cands = CANDS if a.cands == "default" else a.cands.split(",") if a.cands != "all" else [c for c in df.columns if df[c].dtype.kind == "f" and c not in ("tstd", "blk", "start", "len", "live", "bok", "tstd_kf", "song_db", "n_kf", "scene", "has_refs", "base_weak")]
+    if a.golden:
+        df = with_golden(df)
+        print(f"golden 라이브 {int((df.set == 'golden').sum())}행 추가(표와 같은 방송 같은 구간은 제외)")
     df["streamer"] = df.name
     report = {}
     for by in (("group", "streamer") if a.by == "both" else (a.by,)):
@@ -269,6 +303,9 @@ def main():
         print("  [신호 하나씩, C 규칙 위에 추가, m=0] 신호: AUC / 추가로 거른 N / 라이브 손실")
         for c, x in sorted(report[by]["single"].items(), key=lambda kv: -kv[1]["N_rej"]):
             print(f"     {c:16} AUC {x['auc']}  N 거름 {x['N_rej']:2}  라이브 손실 {x['L_lost']}")
+    dep, exp = deployed(df)
+    report["deployed"] = dict(in_sample=dep, exposed_N=exp)
+    print("\n[배포 규칙 표본 내(과적합 참고)] " +" | ".join(f"{s}: N 노출 {t['N_ok']}/{t['n_N']} 라이브 걸림 {t['L_drop']}/{t['n_L']}" for s, t in dep.items()))
     best = (report.get("group") or report["streamer"])["A"]["blind9"]
     assert (best["N_ok"], best["N_weak"], best["N_drop"], best["n_N"]) == (23, 22, 10, 55), f"1.4절 수치 재현 실패: {best}"
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)

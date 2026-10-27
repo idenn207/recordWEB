@@ -87,6 +87,11 @@ mark_likely(S); assert [(g["weak"], g["likely"]) for g in S] == [(False, True), 
 S = [seg(start=400, tier="review", multi="live", speech=s) for s in (0.05, 0.06)]
 mark_likely(S); assert [g["likely"] for g in S] == [True, False]                  # 멘트 섞인 배경 노래는 유력 제외
 print("motion ok")
+# N 오디오 신호(n_signals): 신호가 있으면 움직임 대역은 보지 않고 신호만(대역 안 라이브가 풀림), 신호가 N 을 가리키면 weak, 신호가 없는 후보는 옛 대역
+S = [seg(start=400, tier="review", multi="live", tstd=t, rel_db=r, bursts=b) for t, r, b in ((30, 3.0, 0.0), (10, -9.0, 0.0), (10, 3.0, 2.5), (30, None, None), (10, 3.0, 2.1))]
+mark_likely(S); assert [(g["weak"], g["likely"]) for g in S] == [(False, True), (True, False), (True, False), (True, False), (False, True)]
+assert S[1]["nsig"] and S[0]["nsig"] == [] and S[3]["nsig"] == []
+print("n_signals ok")
 # 승인 경계가 곡의 정답이 아닌 B(boundary_ok=False)는 겹쳐도 auto 로 올리지 않는다
 f = tempfile.mktemp(suffix=".json"); json.dump([dict(videoNo="s_1", start=100, end=300, src="t", boundary_ok=False)], open(f, "w"))
 g = seg(start=102, end=298, tier="review"); known_pos("s_1", g, f); assert g["tier"] == "review" and "경계 문제" in g["tier_why"] and "ref_bd" not in g
