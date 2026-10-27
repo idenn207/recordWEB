@@ -39,7 +39,7 @@ def calc(vid, rs, re_, off=frozenset(), tail=True):
     st = list(g.get("stages") or [])                    # make_final.make 와 같은 순서로 규칙 이동 기록(refine -> 컷)
     for rule, edge, b, af in (("snap_quiet", "start", g["start"], s), ("snap_quiet", "end", g["end"], e), ("lead_pad", "start", s, cs), ("trail_pad", "end", e, ce)):
         snap.mv(st, rule, edge, b, af)
-    if tail: ce = snap.mv(st, "tail", "end", ce, max(ce, e + make_final.TAIL))
+    if tail: ce = snap.mv(st, "tail", "end", ce, make_final.tail_cut(pcm, a, ref, e, ce))
     return dict(song_s=s, song_e=e, clip_s=cs, clip_e=ce, snap_why=g.get("why_snap"), fix_s=g["start"], fix_e=g["end"], stages=st)
 
 def kept(vid):
