@@ -74,6 +74,12 @@ export class ChannelsController {
     return { ok: true };
   }
 
+  /** 웹/업로더 컨테이너가 녹화·후처리 중인 파일을 물어 보는 내부용 엔드포인트 (녹화기 포트는 밖에 게시하지 않는다). */
+  @Get('recorder/busy')
+  busy() {
+    return this.recorder.busyPaths();
+  }
+
   @Post('recording/start-all')
   startAll() {
     this.recorder.startAll();

@@ -17,28 +17,50 @@ export interface ChzzkCookies {
   NID_SES?: string;
 }
 
-/** 설정/채널/쿠키의 메모리 사본과 JSON 파일 저장을 한곳에서 맡는다. */
+const mtime = (f: string) => fs.statSync(f, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+
+/**
+ * 설정/채널/쿠키의 메모리 사본과 JSON 파일 저장을 한곳에서 맡는다.
+ * 녹화기와 웹/업로더가 다른 프로세스라서, 상대가 쓰는 파일은 mtime이 바뀔 때만 다시 읽는다
+ * (config.json은 웹이, channels.json은 녹화기가 쓴다. 한 파일의 쓰기 주체는 하나다).
+ */
 @Injectable()
 export class StoreService {
   private config = normalizeConfig(readJson(CONFIG, {}));
   private channels = normalizeChannels(readJson(CHANNELS, []));
+  private configAt = mtime(CONFIG);
+  private channelsAt = mtime(CHANNELS);
 
   getConfig(): Config {
+    const at = mtime(CONFIG);
+    if (at !== this.configAt) {
+      this.config = normalizeConfig(readJson(CONFIG, {}));
+      this.configAt = at;
+    }
     return this.config;
   }
 
   setConfig(patch: Partial<Config>): Config {
-    this.config = normalizeConfig({ ...this.config, ...patch });
+    this.config = normalizeConfig({ ...this.getConfig(), ...patch });
     writeJson(CONFIG, this.config);
+    this.configAt = mtime(CONFIG);
     return this.config;
   }
 
   getChannels(): Channel[] {
+    // 채널의 주인은 녹화기다(녹화 루프가 객체 참조를 들고 있어 다시 읽지 않는다). 웹 쪽만 파일을 따라간다.
+    if (process.env.ROLE === 'app') {
+      const at = mtime(CHANNELS);
+      if (at !== this.channelsAt) {
+        this.channels = normalizeChannels(readJson(CHANNELS, []));
+        this.channelsAt = at;
+      }
+    }
     return this.channels;
   }
 
   getChannel(id: string): Channel | undefined {
-    return this.channels.find((c) => c.id === id);
+    return this.getChannels().find((c) => c.id === id);
   }
 
   addChannel(raw: unknown): Channel {
@@ -71,6 +93,7 @@ export class StoreService {
 
   private saveChannels() {
     writeJson(CHANNELS, this.channels);
+    this.channelsAt = mtime(CHANNELS);
   }
 
   getChzzkCookies(): ChzzkCookies {

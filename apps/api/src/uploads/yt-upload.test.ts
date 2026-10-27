@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { Channel } from '../config/config.js';
-import { isDone, playlistOf, selectCandidates, splitName, titleOf, UploadState } from './yt-upload.js';
+import { isDone, limitWaitMs, playlistOf, selectCandidates, splitName, titleOf, UploadState } from './yt-upload.js';
 
 describe('titleOf', () => {
   it('날짜를 YYYY MM DD로 바꾸고 fixed_ 접두사와 확장자를 뗀다', () => {
@@ -70,5 +70,12 @@ describe('isDone', () => {
     expect(isDone('x 유니 y.ts', { video_id: 'v', playlisted: true }, [ch])).toBe(true);
     expect(isDone('x 다른 y.ts', { video_id: 'v' }, [ch])).toBe(true);
     expect(isDone('x 유니 y.ts', {}, [ch])).toBe(false);
+  });
+});
+
+describe('limitWaitMs', () => {
+  it('업로드 개수 제한은 2시간, 그 외 한도는 1시간', () => {
+    expect(limitWaitMs('{"reason":"uploadLimitExceeded"}')).toBe(2 * 3600_000);
+    expect(limitWaitMs('{"reason":"quotaExceeded"}')).toBe(3600_000);
   });
 });

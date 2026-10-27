@@ -13,7 +13,7 @@ import { readJson, writeJson } from '../lib/json-store.js';
 import { sleep } from '../lib/text.js';
 import { NotifierService } from '../recorder/notifier.service.js';
 import { RecorderService } from '../recorder/recorder.service.js';
-import { DEFAULT_UPLOAD_SETTINGS, EXTS, UploadSettings, UploadState, isDone, playlistOf, selectCandidates, splitName, titleOf } from './yt-upload.js';
+import { DEFAULT_UPLOAD_SETTINGS, EXTS, UploadSettings, UploadState, isDone, limitWaitMs, playlistOf, selectCandidates, splitName, titleOf } from './yt-upload.js';
 
 const execFileP = promisify(execFile);
 const TOKEN = jsonPath('yt_token.json');
@@ -53,6 +53,7 @@ const parse = (t: string) => {
     return { raw: t };
   }
 };
+const hhmm = (t: number) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 const isQuota = (j: unknown) => /quotaExceeded|uploadLimitExceeded|rateLimitExceeded/.test(JSON.stringify(j));
 
 export interface QueueRow {
@@ -211,7 +212,13 @@ export class YtUploadService implements OnApplicationBootstrap, OnApplicationShu
           const busyOf = (p: string) => this.active.has(path.basename(p)) || recBusy.has(normPath(p));
           for (const p of selectCandidates(channels, this.state, busyOf, s)) {
             const fn = path.basename(p);
-            if (this.active.has(fn) || isDone(fn, this.state[fn], channels) || (this.retryAt.get(fn) ?? 0) > Date.now()) continue;
+            if (this.active.has(fn) || isDone(fn, this.state[fn], channels)) continue;
+            // 한도 대기 중에는 새 세션이 필요한 파일을 pool에 올리지 않는다 (세션이 열린 파일은 이어서 올린다)
+            if (this.gate > Date.now() && !this.state[fn]?.session) {
+              this.info.set(fn, { state: 'waiting', msg: `한도 → ${hhmm(this.gate)} 까지 전체 대기` });
+              continue;
+            }
+            if ((this.retryAt.get(fn) ?? 0) > Date.now()) continue;
             if (running >= s.pool) break;
             this.active.set(fn, p);
             this.info.set(fn, this.info.get(fn) ?? { state: 'queued', msg: '' });
@@ -324,14 +331,15 @@ export class YtUploadService implements OnApplicationBootstrap, OnApplicationShu
         };
         // 실패한 insert도 일일 할당량을 쓴다 → 세션 생성은 한 번에 하나, 한도에 걸리면 전체가 1시간 대기
         const created = this.createChain.then(async () => {
-          await sleep(Math.max(0, this.gate - Date.now()));
+          // 앞선 호출이 한도에 걸렸다면 이 파일도 보내지 않고 바로 대기로 돌린다 (pool을 붙잡고 sleep하지 않는다)
+          if (this.gate > Date.now()) throw new LimitHit(`한도 → ${hhmm(this.gate)} 까지 전체 대기`);
           const r = await this.api('POST', 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', meta, {
             'X-Upload-Content-Length': String(size),
             'X-Upload-Content-Type': EXTS[path.extname(fn).toLowerCase()],
           });
           if (r.status === 429 || (r.status !== 200 && isQuota(r.json))) {
-            this.gate = Date.now() + 3600_000;
-            throw new LimitHit(`한도 ${r.status} → ${new Date(this.gate).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 까지 전체 대기`);
+            this.gate = Date.now() + limitWaitMs(r.text);
+            throw new LimitHit(`한도 ${r.status} → ${hhmm(this.gate)} 까지 전체 대기`);
           }
           return r;
         });

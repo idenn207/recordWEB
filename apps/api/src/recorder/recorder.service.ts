@@ -24,6 +24,7 @@ export interface UiMeta {
   liveTitle: string;
   category: string;
   thumbnailUrl: string | null;
+  avatarUrl?: string | null;
 }
 
 interface Runtime {
@@ -164,7 +165,7 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
   private async fetchUiMeta(ch: Channel): Promise<UiMeta | null> {
     if (ch.platform === 'chzzk') {
       const m = await getLiveMeta(ch, this.store.getChzzkCookies());
-      return m && { isLive: m.status === 'OPEN', liveTitle: m.liveTitle, category: m.category, thumbnailUrl: m.thumbnailUrl };
+      return m && { isLive: m.status === 'OPEN', liveTitle: m.liveTitle, category: m.category, thumbnailUrl: m.thumbnailUrl, avatarUrl: m.avatarUrl ?? null };
     }
     if (ch.platform === 'x') {
       // 외부 호출 없이 감시 루프가 마지막으로 본 결과를 보여 준다 (X 조회 횟수를 늘리지 않기 위해)
@@ -190,7 +191,7 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
         if (!live.open) {
           if (!ch.record_enabled) break; // 토글 OFF의 1회성 시작은 방송이 없으면 그대로 끝
           r.state = 'watching';
-          void this.notifier.notify(`<b>${name}</b> 채널은 <i>예약녹화 중</i>으로 전환되었습니다.`, { channelId: ch.id, state: 'watching' });
+          void this.notifier.notify(`<b>${name}</b> 채널이 <i>녹화 대기</i> 상태가 되었습니다.`, { channelId: ch.id, state: 'watching' });
           await sleep(jitteredWaitMs(ch.id, wait), sig);
           continue;
         }
@@ -249,13 +250,15 @@ export class RecorderService implements OnApplicationBootstrap, OnApplicationShu
         this.store.updateChannel(ch.id, { x_user_id: userId }); // 다음부터는 조회를 건너뛴다
       }
       const spaceId = await fetchLiveSpaceId(userId, cookies);
+      if (spaceId && !r.xLive) console.log(`[X] ${ch.name} 스페이스 감지: ${spaceId}`);
       r.error = '';
       r.xLive = !!spaceId;
       return { open: !!spaceId, xSpaceId: spaceId ?? undefined };
     } catch (e) {
       r.xLive = false;
       const msg = xErrorMessage(e);
-      if (r.error !== msg && e instanceof XError && e.kind === 'auth') void this.notifier.notify(`<b>${esc(ch.name)}</b> 스페이스 감시 중단: ${esc(msg)}`);
+      if (r.error !== msg) console.warn(`[X] ${ch.name} 확인 오류: ${msg}`); // 컨테이너 로그에서 원인을 추적할 수 있게
+      if (r.error !== msg && e instanceof XError && e.kind === 'auth') void this.notifier.notify(`<b>${esc(ch.name)}</b> 스페이스 확인 중단: ${esc(msg)}`);
       r.error = msg;
       return { open: false };
     }

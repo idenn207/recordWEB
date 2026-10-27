@@ -1,4 +1,4 @@
-# TypeScript 버전(NestJS + React) 이미지. 기존 Python 이미지(Dockerfile)와 별개로 빌드한다:
+# TypeScript 버전(NestJS + React) 이미지. recorder와 app 컨테이너가 이 이미지를 같이 쓴다(ROLE 환경변수):
 #   docker build -f Dockerfile.ts -t recordweb-ts:latest .
 # 녹화/후처리는 streamlink, yt-dlp, ffmpeg 바이너리를 subprocess로 부르므로 이미지에 같이 넣는다.
 

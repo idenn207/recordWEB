@@ -61,6 +61,9 @@ export function titleOf(fn: string, names: Set<string>): string {
   return t.length <= 100 ? t : t.slice(0, 99) + '…';
 }
 
+/** 한도에 걸렸을 때 새 세션 생성을 미루는 시간. 업로드 개수 제한은 24시간 롤링이라 API 할당량보다 오래 기다린다. */
+export const limitWaitMs = (body: string) => (/uploadLimitExceeded/.test(body) ? 2 : 1) * 3600_000;
+
 export const recDate = (fn: string) => /\[(\d{4}-\d\d-\d\d)\]/.exec(fn)?.[1] ?? null;
 
 export const playlistOf = (fn: string, channels: Channel[]) => channels.find((c) => c.name && fn.includes(c.name))?.yt_playlist_id || null;

@@ -7,6 +7,7 @@ export interface LiveMeta {
   liveTitle: string;
   category: string;
   thumbnailUrl: string | null;
+  avatarUrl?: string | null; // 채널 프로필 이미지. 방송 중이 아니어도 있다
   startTime: string; // YYYY-MM-DD
   recordQuality: string; // 파일명용 라벨 (예: 1080p)
   frameRate: string; // 파일명용 (예: 60)
@@ -123,6 +124,7 @@ export async function getLiveMeta(channel: { id: string; name: string; quality: 
     liveTitle: c.liveTitle || '방송 제목 없음',
     category: c.liveCategoryValue || '카테고리 없음',
     thumbnailUrl: open && c.liveImageUrl ? String(c.liveImageUrl).replace('{type}', '360') : null,
+    avatarUrl: c.channel?.channelImageUrl ? String(c.channel.channelImageUrl) : null,
     startTime: /^\d{4}-\d\d-\d\d/.test(c.openDate ?? '') ? c.openDate.slice(0, 10) : today(),
     watchPartyNo: c.watchPartyNo ?? null,
     watchPartyTag: c.watchPartyTag || '',

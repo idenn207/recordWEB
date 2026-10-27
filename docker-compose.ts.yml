@@ -1,22 +1,43 @@
-# TypeScript 버전. 기존 compose와 같은 포트/볼륨을 쓰므로 둘을 동시에 띄우지 않는다.
-#   기존(Python) 정지 → docker compose -f docker-compose.ts.yml up -d --build
-# 설정/상태 JSON(channels.json, config.json, cookie.json, yt_*.json)은 기존 파일을 그대로 읽는다.
+# 녹화기(recorder)와 웹+업로더(app)를 같은 이미지로 따로 띄운다. app만 배포하면 녹화는 끊기지 않는다.
+#   docker/deploy-nas.sh [app|recorder|all]
+# 설정/상태 JSON(channels.json, config.json, cookie.json, yt_*.json)은 두 컨테이너가 같은 폴더를 공유한다.
+# 쓰기 주체: channels.json=recorder, config.json·cookie·yt_*=app.
+x-common: &common
+  image: recordweb-ts:latest
+  init: true
+  restart: unless-stopped
+  volumes:
+    - /volume3/docker/recordweb/json:/app/json
+    - /volume1/storage/recordweb-files/chzzk:/app/chzzk
+    # X 스페이스 녹음(.m4a). 채널의 저장 경로 기본값이 xspaces 이다.
+    - /volume1/storage/recordweb-files/xspaces:/app/xspaces
+    # recorder와 app이 유닉스 소켓으로 통신한다 (NAS 브리지 방화벽이 컨테이너 사이 TCP를 막는다)
+    - rpc:/run/recordweb
+
 services:
-  recordweb:
+  recorder:
+    <<: *common
     build:
       context: .
       dockerfile: Dockerfile.ts
-    image: recordweb-ts:latest
-    container_name: recordweb
-    init: true
-    restart: unless-stopped
+    container_name: recordweb-recorder
     # 컨테이너가 중지되면 녹화 프로세스를 정리하고 후처리를 시작할 시간을 준다.
     stop_grace_period: 30s
+    environment:
+      ROLE: recorder
+      RECORDER_SOCKET: /run/recordweb/recorder.sock
+    # 포트를 게시하지 않는다: app 컨테이너만 위 소켓으로 접근한다.
+
+  app:
+    <<: *common
+    container_name: recordweb-app
+    environment:
+      ROLE: app
+      PORT: '5000'
+      RECORDER_SOCKET: /run/recordweb/recorder.sock
     ports:
       # NAS의 LAN IP에만 게시한다(앱 레벨 로그인이 없으므로 네트워크 경계가 유일한 접근 통제).
       - '192.168.0.10:5080:5000'
-    volumes:
-      - /volume3/docker/recordweb/json:/app/json
-      - /volume1/storage/recordweb-files/chzzk:/app/chzzk
-      # X 스페이스 녹음(.m4a). 채널의 저장 경로 기본값이 xspaces 이다.
-      - /volume1/storage/recordweb-files/xspaces:/app/xspaces
+
+volumes:
+  rpc:
