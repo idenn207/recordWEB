@@ -105,6 +105,35 @@ function DiskText() {
   );
 }
 
+/** 녹화 화면을 나누는 기준. 영상(치지직, YouTube)과 음성(스페이스)은 다루는 법이 달라서 섞어 보이지 않는다. */
+const PLATFORMS = [
+  { key: 'chzzk', label: '치지직' },
+  { key: 'youtube', label: 'YouTube' },
+  { key: 'x', label: '스페이스' },
+] as const;
+type PlatformKey = (typeof PLATFORMS)[number]['key'];
+
+function PlatformToggle({ items, value, onChange }: { items: { key: PlatformKey; label: string; total: number; recording: number }[]; value: PlatformKey; onChange: (k: PlatformKey) => void }) {
+  return (
+    <div role="radiogroup" aria-label="플랫폼" className="mb-5 inline-flex max-w-full rounded-full border border-ink/15 p-0.5">
+      {items.map((i) => (
+        <button
+          key={i.key}
+          type="button"
+          role="radio"
+          aria-checked={value === i.key}
+          onClick={() => onChange(i.key)}
+          className={cn('tnum inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-full px-4 text-sm font-semibold transition-colors', value === i.key ? 'bg-ink text-bg' : 'text-muted hover:text-ink')}
+        >
+          {i.label}
+          <span className={cn('text-[13px]', value === i.key ? 'text-bg' : 'text-muted')}>{i.total}</span>
+          {i.recording > 0 && <span className="rec-dot size-1.5 rounded-full bg-rec" role="img" aria-label={`${i.recording}개 녹화 중`} />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type View = 'gallery' | 'list';
 /** 보기 방식은 이 브라우저에 기억한다. 처음에는 좁은 화면이면 리스트, 넓으면 갤러리. */
 function useView(): [View, (v: View) => void] {
@@ -138,14 +167,22 @@ export function ChannelOverview() {
   const filter = FILTERS.find((f) => f.key === raw)?.key ?? 'all'; // 잘못된 값은 전체로
   const q = (params.get('q') ?? '').trim();
   const [view, setView] = useView();
-  const update = (next: { state?: string; q?: string }) => {
+  const update = (next: { state?: string; q?: string; platform?: string }) => {
     const p = new URLSearchParams(params);
     for (const [k, v] of Object.entries(next)) (v ? p.set(k, v) : p.delete(k));
     setParams(p, { replace: true });
   };
 
   const all = [...(data ?? [])].sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name, 'ko'));
-  const named = q ? all.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : all;
+  // 치지직과 스페이스는 항상 보이고, YouTube 는 채널이 있을 때만 보인다.
+  const platforms = PLATFORMS.filter((p) => p.key !== 'youtube' || all.some((c) => c.platform === 'youtube')).map((p) => ({
+    ...p,
+    total: all.filter((c) => c.platform === p.key).length,
+    recording: all.filter((c) => c.platform === p.key && c.status.state === 'recording').length,
+  }));
+  const platform = (platforms.find((p) => p.key === params.get('platform'))?.key ?? 'chzzk') as PlatformKey; // 잘못된 값은 치지직으로
+  const scoped = all.filter((c) => c.platform === platform);
+  const named = q ? scoped.filter((c) => c.name.toLowerCase().includes(q.toLowerCase())) : scoped;
   const count = (k: string) => (k === 'all' ? named.length : named.filter((c) => kindOf(c) === k).length);
   const shown = filter === 'all' ? named : named.filter((c) => kindOf(c) === filter);
   const anyActive = all.some((c) => c.status.state !== 'idle');
@@ -185,6 +222,8 @@ export function ChannelOverview() {
 
       {data && all.length > 0 && (
         <>
+          <PlatformToggle items={platforms} value={platform} onChange={(k) => update({ platform: k === 'chzzk' ? '' : k })} />
+
           <div role="tablist" aria-label="상태별 보기" className="-mx-1 mb-5 flex gap-1 overflow-x-auto overflow-y-hidden border-b border-line px-1 [scrollbar-width:none]">
             {FILTERS.map((f) => (
               <button
@@ -219,11 +258,20 @@ export function ChannelOverview() {
           </div>
 
           {shown.length === 0 ? (
-            <EmptyState title={q ? '검색 결과가 없습니다' : '해당하는 채널이 없습니다'}>
-              <button type="button" className="text-link underline underline-offset-2" onClick={() => update({ state: '', q: '' })}>
-                전체 보기
-              </button>
-            </EmptyState>
+            scoped.length === 0 ? (
+              <EmptyState title={`${platforms.find((p) => p.key === platform)?.label} 채널이 없습니다`}>
+                <Link to="/channels" className="text-link underline underline-offset-2">
+                  채널
+                </Link>
+                에서 추가하세요.
+              </EmptyState>
+            ) : (
+              <EmptyState title={q ? '검색 결과가 없습니다' : '해당하는 채널이 없습니다'}>
+                <button type="button" className="text-link underline underline-offset-2" onClick={() => update({ state: '', q: '' })}>
+                  전체 보기
+                </button>
+              </EmptyState>
+            )
           ) : view === 'gallery' ? (
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-x-6 gap-y-8">
               {shown.map((c) => (

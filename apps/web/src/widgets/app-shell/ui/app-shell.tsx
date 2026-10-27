@@ -215,7 +215,7 @@ function Sidebar({ channels, recording }: { channels: ChannelWithStatus[]; recor
           <ul className="grid gap-0.5">
             {shown.map((c) => (
               <li key={c.id}>
-                <button type="button" onClick={() => navigate(`/?q=${encodeURIComponent(c.name)}`)} className="flex h-12 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors hover:bg-muted-bg">
+                <button type="button" onClick={() => navigate(`/?platform=${c.platform}&q=${encodeURIComponent(c.name)}`)} className="flex h-12 w-full items-center gap-3 rounded-lg px-3 text-left transition-colors hover:bg-muted-bg">
                   <Avatar channel={c} />
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">{c.name}</span>
                   {c.status.state === 'recording' ? (
