@@ -189,6 +189,23 @@ def env_end(pcm, a, ref, s, e, voc=None):
     return t if (after < ref - E1B_DROP or (sp >= 0.5 and after < ref - 6)) else e
 
 
+CODA_FAR, CODA_RUN = 15.0, 8.0     # E3 코다 검사: 이동이 이 초를 넘을 때, 잘라낼 구간에 (Music>=0.85 & Speech<0.2, 1초 이하 틈) 음악이 이 초 이상 이어지면 안 자른다(#60 의 곡 뒤 음악은 5.0초, 코다는 9.0/23초: 표본 4개 근거)
+
+
+def music_run(a, t0, t1, gap=1.0):
+    """[t0,t1) 에서 (Music>=0.85 & Speech<0.2) 가 gap 초 이하 틈으로 이어진 가장 긴 길이(초)."""
+    best = run = bad = 0
+    for k in range(int(t0 / HOP), min(len(a), int(t1 / HOP))):
+        if a[k, 2] >= 0.85 and a[k, 1] < 0.2:
+            run, bad = run + 1 + bad, 0
+            best = max(best, run)
+        else:
+            bad += 1
+            if bad * HOP > gap:
+                run = bad = 0
+    return best * HOP
+
+
 def deep_end(pcm, a, ref, e, look=40.0, depth=30, minlen=0.4, nxt=4.0, nxt_db=12.0):
     """E3: [e-look, e-1.5] 의 마지막 깊은 무음(곡 중앙값-depth dB 미만, Speech<0.3, minlen 초 이상) 뒤 nxt 초 중앙값이 ref-nxt_db 보다 조용하면 그 무음 시작, 아니면 e.
     곡이 끝난 뒤 되살아난 음악/멘트까지 끝이 따라간 경우를 당긴다(blind9 #60 +33.6 -> +0.3, #112 +6.0 -> +0.4).
@@ -208,7 +225,11 @@ def deep_end(pcm, a, ref, e, look=40.0, depth=30, minlen=0.4, nxt=4.0, nxt_db=12
     if not runs:
         return e
     t0, t1 = runs[-1]
-    return t0 if np.median(rms_db(pcm, t1, t1 + nxt)[1]) < ref - nxt_db else e
+    if np.median(rms_db(pcm, t1, t1 + nxt)[1]) >= ref - nxt_db:
+        return e
+    if e - t0 > CODA_FAR and music_run(a, t1, e) >= CODA_RUN:
+        return e                                         # 큰 이동은 잘라낼 구간에 말 없는 음악이 8초 넘게 이어지면(조용한 코다) 곡의 일부로 보고 안 당김(D2 후야 @726 -25초, 13790961@14652 -26초 의 23초 이음)
+    return t0
 
 
 def voc_of(wav):
@@ -339,6 +360,11 @@ def selftest():
     assert deep_end(p2, z, -20.0, 60.0) == 60.0         # 무음 뒤가 곡 소리 수준이면 그대로(곡 안의 쉼)
     p2[sr * 51:] = 30                                   # 무음 뒤가 계속 조용하면 무음 시작에서 끝
     assert abs(deep_end(p2, z, -20.0, 60.0) - 50.0) < 0.11
+    mu = np.zeros((200, 3), np.float32)
+    mu[:, 2] = 0.9
+    p5 = p2.copy()
+    p5[sr * 51:] = 300                                  # 깊은 무음 뒤가 조용하지만 소리는 있음(-39dB)
+    assert abs(deep_end(p5, z, -20.0, 80.0) - 50.0) < 0.11 and deep_end(p5, mu, -20.0, 80.0) == 80.0       # 30초 이동: 잘라낼 구간이 말 없는 음악이면 코다로 보고 유지, 아니면 당김
     p4 = np.zeros(sr * 200, np.int16)
     p4[:sr * 90] = 3000                                 # 0~90초 소리 뒤 무음(진짜 끝은 90초)
     a4 = np.zeros((400, 3), np.float32)
