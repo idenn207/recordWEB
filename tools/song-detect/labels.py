@@ -133,7 +133,7 @@ BLIND9 = {
     "2026-10-24_toa_3_2048": dict(live=True, tag=None, user=None, boundary_ok=True),
     "2026-10-24_toa_3_2405": dict(live=True, tag=None, user=None, boundary_ok=True),
     "2026-10-24_toa_3_2759": dict(live=True, tag=None, user=None, boundary_ok=True),
-    "2026-10-24_toa_3_3085": dict(live=True, tag=None, user=None, boundary_ok=False),
+    "2026-10-24_toa_3_3085": dict(live=True, tag=None, user=None, boundary_ok=True),
     "2026-10-24_toa_3_3365": dict(live=True, tag=None, user=None, boundary_ok=False),
     "2026-10-24_toa_3_3821": dict(live=True, tag=None, user=None, boundary_ok=True),
     "2026-10-24_toa_3_4305": dict(live=True, tag=None, user=None, boundary_ok=True),
