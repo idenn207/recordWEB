@@ -8,6 +8,8 @@ import numpy as np
 from paths import cache_of
 from snap import pcm_of, snap, voc_of
 
+MAXRATIO = 2.5      # 길이 안전장치 상한(배): E1b 가 #20(곡 338초, 후보 134초)을 2.22배로 잇는다. 전 방송 840구간 sweep 에서 1.6배 넘는 결과는 4개뿐(2.22, 1.99, 1.78, 1.76)이라 2.5 로 올려도 다른 곡이 새지 않는다
+
 
 def fix(pcm, a, g, voc=None):
     if not g["keep"] or "start1" in g:
@@ -15,7 +17,7 @@ def fix(pcm, a, g, voc=None):
     tr = []
     s, e = snap(pcm, a, g["start"], g["end"], voc, tr)
     dur = len(pcm) / 16000
-    if not (0 <= s < e <= dur and 0.5 < (e - s) / g["len"] < 2):
+    if not (0 <= s < e <= dur and 0.5 < (e - s) / g["len"] < MAXRATIO):
         g["why_snap"], g["stages"] = "snap 결과 이상, 원래 경계 유지", []
         return g
     g.update(start1=g["start"], end1=g["end"], start=s, end=e, len=e - s, stages=tr)

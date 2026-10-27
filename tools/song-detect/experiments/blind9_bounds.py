@@ -138,8 +138,9 @@ def evaluate(src):
 
 def patched(off):
     """off 에 없는 규칙만 켠 snap 모듈 상태를 만든다(원본 함수를 돌려주는 복구 함수 포함). E2 가 꺼지면 절벽 직후 검사가 예전 1초 중앙값."""
-    keep = dict(run_len=snap.run_len, deep_end=snap.deep_end, start_s1=snap.start_s1, start_s2=snap.start_s2, _bridge=snap._bridge)
+    keep = dict(env_end=snap.env_end, run_len=snap.run_len, deep_end=snap.deep_end, start_s1=snap.start_s1, start_s2=snap.start_s2, _bridge=snap._bridge)
     if "E1" in off: snap.run_len = lambda a, e: 0.0
+    if "E1b" in off: snap.env_end = lambda pcm, a, ref, s, e, voc=None: e
     if "E3" in off: snap.deep_end = lambda pcm, a, ref, e, **k: e
     if "S1" in off: snap.start_s1 = lambda a, voc, s, e, **k: s
     if "S2" in off: snap.start_s2 = lambda a, voc, s, **k: s

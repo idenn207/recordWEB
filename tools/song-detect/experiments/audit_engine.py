@@ -11,7 +11,7 @@ from finalize import fix
 from paths import cache_of
 from blind9_bounds import patched
 
-ALL = {"E1", "E2", "E3", "S1", "S2"}
+ALL = {"E1", "E1b", "E2", "E3", "S1", "S2"}
 _W = {}
 
 def wav_path(vid):

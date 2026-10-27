@@ -140,6 +140,55 @@ def run_len(a, e):
     return 0.0
 
 
+E1B_MU, E1B_SP, E1B_GAP, E1B_CAP, E1B_DROP, E1B_LOUD, E1B_GUARD, E1B_VOC = 0.5, 0.3, 5.0, 120.0, 15.0, 12.0, 1.0, 0.5   # 끝 연장 E1b: 느슨한 Music/Speech, 틈, 연장 상한(초), 직후 감쇠 확정(dB), 조용한 아웃트로 하한(곡 중앙값 대비 -dB), 자연스러운 끝 가드(dB)
+
+
+def env_end(pcm, a, ref, s, e, voc=None):
+    """E1b: 끝 뒤로 '곡 소리가 이어지는 한' 따라가는 2단계(experiments/g1_envelope_end.py 이식). 1단계: Music>=0.5 & Speech<0.3 가 5초 이하 틈으로 이어지는 마지막 지점.
+    2단계(1단계가 2초 이상 움직였을 때만): 곡 소리(dB >= 곡 중앙값-12 & Speech<0.3)가 3초 넘게 끊기지 않는 동안 더 따라감. 채택: 직후 3초가 곡 중앙값-1dB 이상으로 시끄러우면(자연스러운 끝이 아님)
+    건드리지 않고, 최종 지점 직후 1~3초 중앙값이 곡 중앙값-15dB 보다 낮거나(직후 3초 Speech 평균>=0.5 이고 -6dB 보다 낮은 때: 소리가 끊기고 멘트) 일 때만 연장. 말이 MR 위에 얹혀 소리가 그대로면(#70/#71 류) 연장 안 함.
+    보컬 가드: 원래 끝 앞 30초의 vocal 비율(detect 5초 창) 평균이 E1B_VOC 이상일 때만 = 노래 도중에 잘린 끝만(곡이 끝나고 BGM/MR 이 이어지는 경우 제외, #15086957 승인 곡). vocal.json 이 없으면 쉼. 곡 6분 초과 불가.
+    shortcut: 임계값은 B 3곡(#18 #20 #25) 근거, 감쇠 아웃트로 곡이 아니라 BGM 이 이어지는 N 에 붙을 수 있어 연장 상한/가드는 regress_snap 으로만 점검했다."""
+    if float(np.mean(rms_db(pcm, e, e + 3)[1])) < ref - E1B_GUARD:
+        return e                                         # 끝 직후가 이미 곡 소리보다 작으면 자연스러운 끝(감쇠/절벽)
+    w = [vwin(voc or [], a, t) for t in np.arange(e - 30, e, 5.0)]
+    w = [x[0] for x in w if x]
+    if not w or np.mean(w) < E1B_VOC:
+        return e                                         # 노래 도중에 잘린 끝만 잇는다
+    i0 = int(e / HOP)
+    last, bad = i0, 0
+    _, db0 = rms_db(pcm, e, e + E1B_CAP + 2)
+    for k in range(i0, min(len(a), i0 + int(E1B_CAP / HOP))):
+        j = (k - i0) * 5
+        if np.median(db0[j:j + 20]) < ref - E1B_DROP:
+            break                                        # 2초 중앙값이 곡 중앙값보다 크게 내려가면 거기가 끝(절벽/감쇠 끝): 그 뒤 Music 점수가 남아 있어도 이어 붙이지 않음(9667909@13682: 곡이 13880 에서 끊기고 잡음)
+        if a[k, 2] >= E1B_MU and a[k, 1] < E1B_SP:
+            last, bad = k, 0
+        else:
+            bad += 1
+            if bad * HOP > E1B_GAP:
+                break
+    t = last * HOP + HOP
+    if t - e < 2.0:
+        return e
+    ts, db = rms_db(pcm, t, t + 60)
+    bad, t2 = 0, t
+    for j in range(0, len(ts), 5):
+        k = min(int(ts[j] / HOP), len(a) - 1)
+        if db[j] >= ref - E1B_LOUD and a[k, 1] < E1B_SP:
+            t2, bad = ts[j], 0
+        else:
+            bad += 1
+            if bad * 0.5 > 3.0:
+                break
+    t = max(t, float(t2))
+    if t - s > B_MAXLEN:
+        return e
+    after = float(np.median(rms_db(pcm, t + 1.0, t + 3.0)[1]))
+    sp = float(a[int(t / HOP):int((t + 3) / HOP), 1].mean())
+    return t if (after < ref - E1B_DROP or (sp >= 0.5 and after < ref - 6)) else e
+
+
 def deep_end(pcm, a, ref, e, look=40.0, depth=30, minlen=0.4, nxt=4.0, nxt_db=12.0):
     """E3: [e-look, e-1.5] 의 마지막 깊은 무음(곡 중앙값-depth dB 미만, Speech<0.3, minlen 초 이상) 뒤 nxt 초 중앙값이 ref-nxt_db 보다 조용하면 그 무음 시작, 아니면 e.
     곡이 끝난 뒤 되살아난 음악/멘트까지 끝이 따라간 경우를 당긴다(blind9 #60 +33.6 -> +0.3, #112 +6.0 -> +0.4).
@@ -233,6 +282,7 @@ def snap(pcm, a, s, e, voc=None, trace=None):
     if len(q):
         e2 = mv(trace, "quiet", "end", e2, float(q[0]))
     e2 = mv(trace, "E1", "end", e2, e2 + run_len(a, e2))                   # E1: 간주 뒤 이어지는 노래로 끝 연장
+    e2 = mv(trace, "E1b", "end", e2, env_end(pcm, a, ref, s, e2, voc))          # E1b: 조용한 아웃트로/MR 까지 소리가 이어지는 끝 연장
     e2 = mv(trace, "E3", "end", e2, deep_end(pcm, a, ref, e2))             # E3: 곡이 끝난 뒤 되살아난 소리까지 간 끝을 깊은 무음으로 당김
     s2 = mv(trace, "lead_start", "start", s, lead_start(pcm, a, s, ref))   # 시작: 앞 LOOK 초 안 마지막 끊김 뒤 첫 소리 - LEAD
     if voc:                                             # vocal.json 이 있을 때만: S1 사운드체크 제외, 아니면 S2 반주 희박한 앞부분 복구
@@ -289,6 +339,15 @@ def selftest():
     assert deep_end(p2, z, -20.0, 60.0) == 60.0         # 무음 뒤가 곡 소리 수준이면 그대로(곡 안의 쉼)
     p2[sr * 51:] = 30                                   # 무음 뒤가 계속 조용하면 무음 시작에서 끝
     assert abs(deep_end(p2, z, -20.0, 60.0) - 50.0) < 0.11
+    p4 = np.zeros(sr * 200, np.int16)
+    p4[:sr * 90] = 3000                                 # 0~90초 소리 뒤 무음(진짜 끝은 90초)
+    a4 = np.zeros((400, 3), np.float32)
+    a4[:180, 2] = 0.9
+    v4 = [(0.0, np.full(40, 0.8))]
+    assert 89 < env_end(p4, a4, -20.0, 0.0, 40.0, v4) < 92          # 노래 도중에 잘린 끝(40초)을 소리가 끊기는 90초까지
+    assert env_end(p4, a4, -20.0, 0.0, 40.0) == 40.0 and env_end(p4, a4, -20.0, 0.0, 40.0, [(0.0, np.full(40, 0.1))]) == 40.0      # vocal.json 없음/뒤 30초에 보컬 없음(곡이 끝난 뒤 이어지는 MR)이면 안 잇는다
+    p4[sr * 90:] = 3000
+    assert env_end(p4, a4, -20.0, 0.0, 40.0, v4) == 40.0            # 끝난 뒤에도 소리가 그대로(끊김 없음)면 믿지 않음
     b = np.full((400, 3), 0.9, np.float32)
     b[40:50, 2] = 0.0                                   # 20~25초 MR 정지
     assert start_s1(b, [(0.0, np.full(40, 0.1))], 0.0, 200.0) == 24.0     # 정지 앞이 MR 만이면 정지 뒤 -1초부터
@@ -304,7 +363,7 @@ def selftest():
     a3[40:160, 2] = 0.9
     tr = []
     assert snap(p3, a3, 21.0, 70.0, None, tr) == snap(p3, a3, 21.0, 70.0)       # trace 는 결과를 바꾸지 않고
-    assert tr and {x["rule"] for x in tr} <= {"cliff", "bridge", "quiet", "E1", "E3", "lead_start", "S1", "S2"}, tr    # 이동마다 규칙 이름이 붙는다
+    assert tr and {x["rule"] for x in tr} <= {"cliff", "bridge", "quiet", "E1", "E1b", "E3", "lead_start", "S1", "S2"}, tr    # 이동마다 규칙 이름이 붙는다
     print("selftest ok")
 
 
