@@ -24,8 +24,10 @@ OLD=$($DOCKER ps -aq -f name='^recordweb$' || true)
 
 if [ "$TARGET" != "app" ]; then
   echo "== 지금 녹화 중인 채널"
-  N=$(curl -s -m 8 "http://$HOST/api/channels" | grep -o '"state":"recording"' | wc -l | tr -d ' ')
-  echo "  녹화 중 ${N}개 (응답이 없으면 0으로 표시됩니다)"
+  # 로그인이 필요한 웹 API 대신 녹화기 소켓에 직접 묻는다. 확인하지 못하면 '?'로 두고 녹화 중인 것처럼 확인을 거친다.
+  N=$($DOCKER exec recordweb-recorder node -e "const h=require('http');h.get({socketPath:process.env.RECORDER_SOCKET,path:'/api/channels',timeout:8000},r=>{let b='';r.on('data',d=>b+=d).on('end',()=>console.log((b.match(/\"state\":\"recording\"/g)||[]).length))}).on('error',()=>console.log('?'))" 2>/dev/null || echo '?')
+  [ -n "$N" ] || N='?'
+  echo "  녹화 중 ${N}개 (?는 확인하지 못함)"
   if [ "$N" != "0" ] && [ "${FORCE:-}" != "1" ]; then
     echo "녹화 중인 채널이 있습니다. 녹화기를 교체하면 그 녹화가 끊깁니다."
     printf "그래도 교체할까요? (yes 입력) "
@@ -61,7 +63,7 @@ echo "== 확인"
 OK=0
 for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 3
-  if curl -s -m 5 -o /dev/null -w "%{http_code}" "http://$HOST/api/channels" | grep -q 200; then OK=1; break; fi
+  if curl -s -m 5 -o /dev/null -w "%{http_code}" "http://$HOST/api/auth/state" | grep -q 200; then OK=1; break; fi
 done
 if [ "$OK" = "1" ]; then
   echo "  서버가 응답합니다: http://$HOST"
