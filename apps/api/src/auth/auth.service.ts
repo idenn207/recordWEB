@@ -28,9 +28,22 @@ export interface AuditEntry {
 
 export const hashPassword = (pw: string, salt = crypto.randomBytes(16)) => `scrypt$${salt.toString('base64url')}$${crypto.scryptSync(pw, salt, 32).toString('base64url')}`;
 
+/** 예전 Python 앱(werkzeug)이 저장한 해시: scrypt:N:r:p$솔트$해시(hex, 64바이트). 기존 계정으로 그대로 로그인하게 한다. */
+const isLegacy = (stored: string) => stored.startsWith('scrypt:');
+
+function verifyLegacy(pw: string, stored: string): boolean {
+  const [method, salt, want] = stored.split('$');
+  const [, n, r, p] = method.split(':').map((v, i) => (i ? Number(v) : v)) as [string, number, number, number];
+  if (!salt || !want || !n || !r || !p) return false;
+  const got = crypto.scryptSync(pw, salt, want.length / 2, { N: n, r, p, maxmem: 132 * n * r * p });
+  const w = Buffer.from(want, 'hex');
+  return got.length === w.length && crypto.timingSafeEqual(got, w);
+}
+
 export function verifyPassword(pw: string, stored: string): boolean {
+  if (isLegacy(stored)) return verifyLegacy(pw, stored);
   const [alg, salt, want] = stored.split('$');
-  if (alg !== 'scrypt' || !salt || !want) return false; // shortcut: 예전 Python(werkzeug) 해시는 지원하지 않는다. 계정을 새로 만든다.
+  if (alg !== 'scrypt' || !salt || !want) return false;
   const got = crypto.scryptSync(pw, Buffer.from(salt, 'base64url'), 32);
   const w = Buffer.from(want, 'base64url');
   return got.length === w.length && crypto.timingSafeEqual(got, w);
@@ -98,7 +111,7 @@ export class AuthService {
     for (const [k, v] of this.fails) if (Date.now() - v.first > WINDOW_MS) this.fails.delete(k); // 만료된 기록은 그때그때 버린다
     const cur = this.fails.get(ip);
     if (cur && cur.n >= MAX_FAILS) throw new TooMany(Math.ceil((WINDOW_MS - (Date.now() - cur.first)) / 1000));
-    const a = this.load();
+    let a = this.load();
     // 아이디가 틀려도 같은 비용의 해시 계산을 해서 응답 시간으로 아이디를 알아내지 못하게 한다.
     const hit = !!a.username && username === a.username && !!a.password;
     const ok = verifyPassword(password, hit ? a.password! : DUMMY_HASH) && hit;
@@ -109,6 +122,7 @@ export class AuthService {
     }
     this.fails.delete(ip);
     this.audit('login', ip);
+    if (isLegacy(a.password!)) a = this.save({ ...a, password: hashPassword(password) }); // 새 형식으로 바꿔 저장(세션 번호는 그대로)
     return this.token(a);
   }
 

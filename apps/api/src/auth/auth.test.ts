@@ -69,3 +69,17 @@ it('계정 파일은 소유자만 읽을 수 있게 저장한다', async () => {
   auth.setup('owner', 'longenough1', 'ip');
   expect(fs.statSync(path.join(root, 'json', 'login.json')).mode & 0o077).toBe(0);
 });
+
+it('예전 Python 앱(werkzeug scrypt) 계정으로 로그인하고, 로그인하면 새 형식으로 바뀐다', async () => {
+  const { auth, root } = await fresh();
+  const crypto = await import('node:crypto');
+  const salt = 'AbCdEfGhIjKlMnOp';
+  const hex = crypto.scryptSync('legacy-pass1', salt, 64, { N: 32768, r: 8, p: 1, maxmem: 132 * 32768 * 8 }).toString('hex');
+  fs.writeFileSync(path.join(root, 'json', 'login.json'), JSON.stringify({ username: 'oldowner', password: `scrypt:32768:8:1$${salt}$${hex}`, secret_key: 'k'.repeat(64) }));
+  expect(auth.needsSetup()).toBe(false);
+  expect(auth.login('oldowner', 'wrong-pass1', 'ip')).toBeNull();
+  const token = auth.login('oldowner', 'legacy-pass1', 'ip');
+  expect(token).not.toBeNull();
+  expect(fs.readFileSync(path.join(root, 'json', 'login.json'), 'utf8')).toContain('"scrypt$');
+  expect(auth.login('oldowner', 'legacy-pass1', 'ip')).not.toBeNull(); // 새 형식으로도 로그인된다
+});
