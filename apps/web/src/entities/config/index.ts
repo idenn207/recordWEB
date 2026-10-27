@@ -40,6 +40,7 @@ export interface Secrets {
 }
 
 export const useConfig = () => useQuery({ queryKey: ['config'], queryFn: () => api<Config>('/config') });
+export const fetchSecrets = () => api<Secrets>('/secrets');
 export const useSecrets = () => useQuery({ queryKey: ['secrets'], queryFn: () => api<Secrets>('/secrets') });
 
 export function useSaveConfig() {

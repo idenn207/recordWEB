@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { type Channel, type ChannelWithStatus, PlatformMark, useChannels, useDeleteChannel, useToggleChannel } from '@/entities/channel';
 import { ChannelFormDialog } from '@/features/edit-channel';
-import { Badge, Button, ConfirmDialog, EmptyState, Notice, PageHeader, RowMenu, Toggle, useToast } from '@/shared/ui';
+import { Badge, Button, ConfirmDialog, EmptyState, ListSkeleton, Notice, PageHeader, RowMenu, Toggle, useToast } from '@/shared/ui';
 
-const TH = 'sticky top-0 whitespace-nowrap bg-muted-bg px-3 py-2 text-left text-[0.8rem] font-semibold tracking-[0.02em] text-muted';
+const TH = 'sticky top-0 whitespace-nowrap bg-muted-bg px-3 py-2 text-left text-xs font-semibold tracking-[0.02em] text-muted';
 const TD = 'px-3 py-2.5 align-middle';
 
 export function ChannelTable() {
@@ -16,18 +16,18 @@ export function ChannelTable() {
 
   return (
     <>
-      <PageHeader title="채널 관리">
+      <PageHeader title="채널">
         <Button variant="primary" icon="plus" onClick={() => setEditing('new')}>
           채널 추가
         </Button>
       </PageHeader>
 
-      {error && <Notice tone="rec">채널 목록을 불러오지 못했습니다. ({(error as Error).message})</Notice>}
-      {isLoading && <p className="text-muted">불러오는 중…</p>}
-      {data && data.length === 0 && <EmptyState title="등록된 채널이 없습니다">오른쪽 위의 “채널 추가”로 녹화할 채널을 등록하세요.</EmptyState>}
+      {error && <Notice tone="rec">채널 목록을 불러오지 못했습니다. 서버가 켜져 있는지 확인하세요.</Notice>}
+      {isLoading && <ListSkeleton />}
+      {data && data.length === 0 && <EmptyState title="등록된 채널이 없습니다">채널을 추가하면 방송이 시작될 때 자동으로 녹화합니다.</EmptyState>}
 
       {data && data.length > 0 && (
-        <div className="overflow-x-auto rounded-xl border border-line bg-card shadow-card">
+        <div className="overflow-x-auto rounded-card border border-line bg-card">
           <table className="w-full border-collapse md:min-w-[46rem]">
             <thead>
               <tr>
@@ -49,17 +49,17 @@ export function ChannelTable() {
                       <PlatformMark platform={c.platform} />
                       <span className="font-bold">{c.name}</span>
                     </div>
-                    <div className="mt-0.5 max-w-[9.5rem] truncate font-mono text-[0.8rem] text-muted md:max-w-64" title={c.id}>
+                    <div className="mt-0.5 max-w-[9.5rem] truncate font-mono text-xs text-muted md:max-w-64" title={c.id}>
                       {c.id}
                     </div>
-                    <div className="mt-0.5 text-[0.8rem] text-muted md:hidden">
+                    <div className="mt-0.5 text-xs text-muted md:hidden">
                       {c.platform === 'x' ? '스페이스 음성' : c.quality} {c.extension} · {c.output_dir}
                       {c.platform === 'chzzk' && c.yt_auto_upload && ' · 자동 업로드'}
                     </div>
                   </td>
-                  <td className={`${TD} font-mono text-[0.85rem] text-muted max-md:hidden`}>{c.output_dir}</td>
+                  <td className={`${TD} font-mono text-[13px] text-muted max-md:hidden`}>{c.output_dir}</td>
                   <td className={`${TD} text-muted max-md:hidden`}>
-                    {c.platform === 'x' ? '스페이스 음성' : c.quality} <span className="font-mono text-[0.8rem]">{c.extension}</span>
+                    {c.platform === 'x' ? '스페이스 음성' : c.quality} <span className="font-mono text-xs">{c.extension}</span>
                   </td>
                   <td className={TD}>
                     <Toggle checked={c.record_enabled} onChange={() => toggle.mutate(c.id)} label={`${c.name} 자동 녹화`} />
@@ -93,7 +93,7 @@ export function ChannelTable() {
       <ConfirmDialog
         open={!!deleting}
         onClose={() => setDeleting(null)}
-        onConfirm={() => deleting && remove.mutate(deleting.id, { onSuccess: () => toast(`${deleting.name} 채널을 삭제했습니다`), onError: (e) => toast(e.message, 'error'), onSettled: () => setDeleting(null) })}
+        onConfirm={() => deleting && remove.mutate(deleting.id, { onError: (e) => toast(e.message, 'error'), onSettled: () => setDeleting(null) })}
         title={`${deleting?.name ?? ''} 채널을 삭제할까요?`}
         confirmLabel={`${deleting?.name ?? ''} 채널 삭제`}
         requireText={deleting?.status.state === 'recording' ? deleting.name : undefined}

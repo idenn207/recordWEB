@@ -1,4 +1,4 @@
-import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react';
+import { Menu } from '@base-ui/react/menu';
 import { cn } from '../lib/cn';
 import { IconButton } from './button';
 import { Icon, type IconName } from './icon';
@@ -13,29 +13,29 @@ export interface RowMenuItem {
   reason?: string;
 }
 
-/**
- * 행마다 버튼을 늘어놓지 않고 아이콘 하나로 여는 메뉴.
- * anchor를 쓰면 패널이 body에 떠서 테이블의 스크롤 영역에 잘리지 않는다.
- */
+/** 행마다 버튼을 늘어놓지 않고 아이콘 하나로 여는 메뉴. 포털로 떠서 테이블의 스크롤 영역에 잘리지 않는다. */
 export function RowMenu({ label, items }: { label: string; items: RowMenuItem[] }) {
   return (
-    <Menu>
-      <MenuButton as={IconButton} icon="more" label={label} />
-      <MenuItems anchor={{ to: 'bottom end', gap: 4 }} className="z-40 min-w-44 rounded-lg border border-line bg-card p-1 shadow-float focus-visible:outline-none">
-        {items.map((it) => (
-          <MenuItem key={it.label} disabled={it.disabled}>
-            <button
-              type="button"
-              onClick={it.onClick}
-              title={it.disabled ? it.reason : undefined}
-              className={cn('flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left data-[focus]:bg-tint data-[disabled]:opacity-45', it.danger ? 'text-rec' : 'text-ink')}
-            >
-              {it.icon && <Icon name={it.icon} size={16} />}
-              {it.label}
-            </button>
-          </MenuItem>
-        ))}
-      </MenuItems>
-    </Menu>
+    <Menu.Root>
+      <Menu.Trigger render={<IconButton icon="more" label={label} />} />
+      <Menu.Portal>
+        <Menu.Positioner side="bottom" align="end" sideOffset={4} className="z-40">
+          <Menu.Popup className="min-w-44 rounded-control border border-line bg-surface p-1 shadow-float outline-none">
+            {items.map((it) => (
+              <Menu.Item
+                key={it.label}
+                disabled={it.disabled}
+                onClick={it.onClick}
+                title={it.disabled ? it.reason : undefined}
+                className={cn('flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left outline-none data-[highlighted]:bg-muted-bg data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45', it.danger ? 'text-rec' : 'text-ink')}
+              >
+                {it.icon && <Icon name={it.icon} size={16} />}
+                {it.label}
+              </Menu.Item>
+            ))}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }

@@ -15,8 +15,8 @@ export function RecordButton({ channel, small }: { channel: ChannelWithStatus; s
   return (
     <>
       {active ? (
-        <Button small={small} variant="danger" icon="stop" disabled={busy} onClick={() => run(stop)} aria-label={`${channel.name} ${recording ? '녹화 중지' : '감시 중지'}`}>
-          {recording ? '녹화 중지' : '감시 중지'}
+        <Button small={small} variant="danger" icon="stop" disabled={busy} onClick={() => run(stop)} aria-label={`${channel.name} ${recording ? '녹화 중지' : '대기 취소'}`}>
+          {recording ? '녹화 중지' : '대기 취소'}
         </Button>
       ) : (
         <Button small={small} variant="primary" icon="play" disabled={busy} onClick={() => run(start)} aria-label={`${channel.name} 녹화 시작`}>
@@ -24,7 +24,7 @@ export function RecordButton({ channel, small }: { channel: ChannelWithStatus; s
         </Button>
       )}
       {error && (
-        <span role="alert" className="text-[0.8rem] text-rec">
+        <span role="alert" className="text-xs text-rec">
           {error}
         </span>
       )}

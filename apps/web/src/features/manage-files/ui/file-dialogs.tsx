@@ -83,7 +83,7 @@ export function MoveDialog({ items, currentDir, roots, onClose }: { items: FileI
         <Field label="이동할 폴더" hint="없는 폴더는 새로 만듭니다">
           {(id) => (
             <>
-              <TextInput id={id} autoFocus list="move-roots" value={dst} onChange={(e) => setDst(e.target.value)} className="font-mono text-[0.85rem]" />
+              <TextInput id={id} autoFocus list="move-roots" value={dst} onChange={(e) => setDst(e.target.value)} className="font-mono text-[13px]" />
               <datalist id="move-roots">
                 {roots.map((r) => (
                   <option key={r} value={r} />

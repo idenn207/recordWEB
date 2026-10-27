@@ -3,18 +3,19 @@ import { useElapsed } from '../lib/use-elapsed';
 import { type ChannelWithStatus, PLATFORM_NAME, type Platform } from '../model/types';
 
 /** 상태는 색 + 문구(+ 녹화 중 깜빡이는 점)로 전달한다. */
-export function StatusBadge({ channel }: { channel: ChannelWithStatus }) {
+export function StatusBadge({ channel, overlay, large }: { channel: ChannelWithStatus; overlay?: boolean; large?: boolean }) {
   const elapsed = useElapsed(channel.status.state === 'recording' ? channel.status.startedAt : null);
   if (channel.status.state === 'recording') {
     return (
-      <Badge tone="rec" pulse>
+      <Badge tone="rec" pulse solid={overlay} large={large}>
         녹화 중 <span className="tnum">{elapsed}</span>
       </Badge>
     );
   }
+  if (channel.status.meta?.isLive && !channel.status.error) return <Badge tone="ok" solid={overlay} large={large}>방송 중</Badge>; // 방송은 하지만 녹화는 하지 않는 채널
   // 감시를 막는 문제가 있으면 "예약 녹화 중"처럼 정상으로 보이지 않게 한다
-  if (channel.status.state === 'watching') return <Badge tone="warn">{channel.status.error ? '감시 오류' : '예약 녹화 중'}</Badge>;
-  return <Badge>대기 중</Badge>;
+  if (channel.status.state === 'watching') return <Badge tone={channel.status.error ? 'rec' : 'warn'} solid={overlay} large={large}>{channel.status.error ? '오류' : '녹화 대기'}</Badge>;
+  return <Badge solid={overlay} large={large}>꺼짐</Badge>;
 }
 
 export function PlatformMark({ platform, showName = false }: { platform: Platform; showName?: boolean }) {

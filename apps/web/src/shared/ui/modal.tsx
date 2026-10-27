@@ -1,4 +1,4 @@
-import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
+import { Dialog } from '@base-ui/react/dialog';
 import { type ReactNode, useEffect, useState } from 'react';
 import { Button } from './button';
 import { TextInput } from './field';
@@ -9,19 +9,20 @@ import { TextInput } from './field';
  */
 export function Modal({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   return (
-    <Dialog open={open} onClose={onClose} className="relative z-50">
-      <DialogBackdrop transition className="fixed inset-0 bg-black/50 transition-opacity duration-150 data-[closed]:opacity-0" />
-      <div className="fixed inset-0 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
-        <DialogPanel
-          transition
-          className={`my-auto w-full ${wide ? 'max-w-2xl' : 'max-w-md'} rounded-[14px] border border-line bg-card shadow-float transition duration-150 data-[closed]:translate-y-1 data-[closed]:opacity-0`}
-        >
-          <DialogTitle className="border-b border-line px-5 py-3.5 text-[1.05rem] font-bold">{title}</DialogTitle>
-          <div className="px-5 py-4">{children}</div>
-          {footer && <div className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
-        </DialogPanel>
-      </div>
-    </Dialog>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:items-center">
+          <Dialog.Popup
+            className={`pointer-events-auto my-auto w-full ${wide ? 'max-w-2xl' : 'max-w-md'} rounded-card border border-line bg-surface shadow-float transition duration-150 data-[ending-style]:translate-y-1 data-[ending-style]:opacity-0 data-[starting-style]:translate-y-1 data-[starting-style]:opacity-0`}
+          >
+            <Dialog.Title className="border-b border-line px-5 py-3.5 text-base font-semibold">{title}</Dialog.Title>
+            <div className="px-5 py-4">{children}</div>
+            {footer && <div className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>}
+          </Dialog.Popup>
+        </div>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 
@@ -66,9 +67,9 @@ export function ConfirmDialog({
     >
       <div className="text-muted">{children}</div>
       {requireText && (
-        <label className="mt-3 grid gap-1 text-[0.8rem] font-semibold text-muted">
+        <label className="mt-3 grid gap-1 text-xs font-semibold text-muted">
           확인하려면 <span className="text-ink">{requireText}</span> 를 입력하세요
-          <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" className="text-[0.9rem] font-normal text-ink" />
+          <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" className="text-sm font-normal text-ink" />
         </label>
       )}
     </Modal>

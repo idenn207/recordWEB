@@ -5,10 +5,10 @@ import { Icon, type IconName } from './icon';
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 const VARIANTS: Record<Variant, string> = {
-  primary: 'bg-brand text-brand-ink border-line hover:bg-brand-hover font-bold',
-  secondary: 'bg-card text-ink border-line hover:bg-muted-bg font-semibold',
-  danger: 'bg-card text-rec border-line hover:bg-muted-bg font-semibold',
-  ghost: 'bg-transparent text-muted border-transparent hover:bg-muted-bg hover:text-ink font-semibold',
+  primary: 'border-transparent bg-brand font-semibold text-brand-ink hover:bg-brand-hover disabled:bg-muted-bg disabled:text-muted disabled:opacity-100',
+  secondary: 'border-ink/15 bg-transparent font-semibold text-ink hover:bg-muted-bg',
+  danger: 'border-rec/40 bg-transparent font-semibold text-rec hover:bg-err-bg',
+  ghost: 'border-transparent bg-transparent font-semibold text-muted hover:bg-muted-bg hover:text-ink',
 };
 
 interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -22,8 +22,8 @@ export function Button({ variant = 'secondary', icon, small, className, children
     <button
       type={type}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50',
-        small ? 'px-2.5 py-1 text-[0.8rem]' : 'px-3.5 py-2',
+        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50',
+        small ? 'h-8 px-3 text-[13px]' : 'h-9 px-4 text-sm pointer-coarse:min-h-11',
         VARIANTS[variant],
         className,
       )}
@@ -42,7 +42,7 @@ export function IconButton({ icon, label, className, ...rest }: { icon: IconName
       type="button"
       aria-label={label}
       title={label}
-      className={cn('inline-flex h-[30px] w-[30px] items-center justify-center rounded-lg border border-transparent text-muted transition-colors hover:border-line hover:bg-muted-bg hover:text-ink aria-expanded:border-line aria-expanded:bg-muted-bg', className)}
+      className={cn('inline-flex size-9 items-center justify-center rounded-full border border-transparent text-muted transition-colors hover:border-line hover:bg-muted-bg hover:text-ink aria-expanded:border-line aria-expanded:bg-muted-bg', className)}
       {...rest}
     >
       <Icon name={icon} />

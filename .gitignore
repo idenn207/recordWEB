@@ -39,3 +39,7 @@ Thumbs.db
 
 node_modules/
 dist/
+
+# X 로그인 쿠키 원본(비밀)
+x-account
+.playwright-mcp/

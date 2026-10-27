@@ -6,6 +6,7 @@ export interface LiveInfo {
   liveTitle: string;
   category: string;
   thumbnailUrl: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface ChannelStatus {
