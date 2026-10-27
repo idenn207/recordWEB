@@ -210,22 +210,37 @@ def start_s2(a, voc, s, vmin=0.6, mumin=0.2, spmax=0.1, maxback=30.0):
     return new
 
 
-def snap(pcm, a, s, e, voc=None):
+def mv(trace, rule, edge, before, after):
+    """경계 이동 기록: trace 가 리스트일 때만 {rule, edge, before, after, shift} 를 추가(0.01초 미만은 생략)하고 after 를 그대로 돌려준다."""
+    if trace is not None and abs(after - before) >= 0.01:
+        trace.append(dict(rule=rule, edge=edge, before=round(before, 2), after=round(after, 2), shift=round(after - before, 2)))
+    return after
+
+
+def snap(pcm, a, s, e, voc=None, trace=None):
+    """(시작, 끝). trace=[] 를 주면 규칙별 이동(cliff, bridge, quiet, E1, E3, lead_start, S1, S2)이 순서대로 쌓이고 edge 별 합이 총 이동량과 같다(assert)."""
     _, db = rms_db(pcm, s, e)
     ref = float(np.median(db))
     c = cliff(a, e - BACK, e + FWD)
-    e2 = bridge(pcm, a, ref, c) if c is not None else e
-    if c is not None and e2 > c and e2 - s > B_MAXLEN:                               # detect.P max_len_s: 이어 붙여 곡이 6분을 넘으면 이음을 믿지 않고 원래 절벽 유지
-        e2 = c
+    e2 = e
+    if c is not None:
+        e2 = bridge(pcm, a, ref, c)
+        if e2 > c and e2 - s > B_MAXLEN:                                         # detect.P max_len_s: 이어 붙여 곡이 6분을 넘으면 이음을 믿지 않고 원래 절벽 유지
+            e2 = c
+        mv(trace, "cliff", "end", e, c)
+        mv(trace, "bridge", "end", c, e2)
     q = quiet(pcm, a, ref, e2 - 1, e2 + MARGIN)         # 끝: 음악 끝 앞 1초~뒤 2초 안에서 가장 이른 무음
     if len(q):
-        e2 = float(q[0])
-    e2 += run_len(a, e2)                                # E1: 간주 뒤 이어지는 노래로 끝 연장
-    e2 = deep_end(pcm, a, ref, e2)                      # E3: 곡이 끝난 뒤 되살아난 소리까지 간 끝을 깊은 무음으로 당김
-    s2 = lead_start(pcm, a, s, ref)                     # 시작: 앞 LOOK 초 안 마지막 끊김 뒤 첫 소리 - LEAD
+        e2 = mv(trace, "quiet", "end", e2, float(q[0]))
+    e2 = mv(trace, "E1", "end", e2, e2 + run_len(a, e2))                   # E1: 간주 뒤 이어지는 노래로 끝 연장
+    e2 = mv(trace, "E3", "end", e2, deep_end(pcm, a, ref, e2))             # E3: 곡이 끝난 뒤 되살아난 소리까지 간 끝을 깊은 무음으로 당김
+    s2 = mv(trace, "lead_start", "start", s, lead_start(pcm, a, s, ref))   # 시작: 앞 LOOK 초 안 마지막 끊김 뒤 첫 소리 - LEAD
     if voc:                                             # vocal.json 이 있을 때만: S1 사운드체크 제외, 아니면 S2 반주 희박한 앞부분 복구
         s1 = start_s1(a, voc, s2, e2)
-        s2 = s1 if s1 > s2 else start_s2(a, voc, s2)
+        s2 = mv(trace, "S1", "start", s2, s1) if s1 > s2 else mv(trace, "S2", "start", s2, start_s2(a, voc, s2))
+    if trace is not None:
+        for edge, d in (("start", s2 - s), ("end", e2 - e)):
+            assert abs(sum(t["shift"] for t in trace if t["edge"] == edge) - d) < 0.1, (edge, d, trace)    # 모든 이동이 규칙 이름에 귀속
     return s2, e2
 
 
@@ -282,6 +297,14 @@ def selftest():
     c[:, 2] = 0.5
     assert start_s2(c, [(0.0, np.full(20, 0.7))], 50.0) == 20.0           # 희박한 반주 + 노래 창을 최대 30초 거슬러
     assert start_s2(c, [(0.0, np.full(20, 0.3))], 50.0) == 50.0
+    p3 = np.full(sr * 100, 3000, np.int16)
+    p3[:sr * 20] = 0
+    p3[sr * 80:] = 0
+    a3 = np.zeros((200, 3), np.float32)
+    a3[40:160, 2] = 0.9
+    tr = []
+    assert snap(p3, a3, 21.0, 70.0, None, tr) == snap(p3, a3, 21.0, 70.0)       # trace 는 결과를 바꾸지 않고
+    assert tr and {x["rule"] for x in tr} <= {"cliff", "bridge", "quiet", "E1", "E3", "lead_start", "S1", "S2"}, tr    # 이동마다 규칙 이름이 붙는다
     print("selftest ok")
 
 

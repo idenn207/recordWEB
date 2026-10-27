@@ -160,24 +160,36 @@ def trail_pad(pcm, a, ref, e):
     return cut, dict(gaps=G, chosen=[round(best[0], 2), round(best[1], 2)] if best else None, kind=kind, pad=round(cut - e, 2))
 
 
+def stages_of(card, st):
+    """카드의 snap 규칙 이동(boundary.stages, 없는 옛 카드는 빈 목록) + 컷 단계 이동 st. 원본 경계(refine)에서 컷까지 이동한 모든 초가 규칙 이름을 가진다."""
+    return ((card.get("boundary") or {}).get("stages") or []) + st
+
+
 def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ctx=False):
     s, e, tier = card["start"], card["end"], card["tier"]
     pcm = a = None
     adj, lead, trail = [], dict(pad=0.0), dict(pad=0.0)
+    st = []                                               # 카드 경계 -> 컷의 규칙별 이동(snap_quiet, lead_pad, trail_pad, tail)
     if wav:
         from paths import cache_of
-        from snap import pcm_of, rms_db
+        from snap import mv, pcm_of, rms_db
         pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
         ref = float(np.median(rms_db(pcm, s, e)[1]))
         s2, m1 = snap_quiet(pcm, a, s, ref)
         e2, m2 = snap_quiet(pcm, a, e, ref)
         adj = [("start", s, s2) if m1 else None, ("end", e, e2) if m2 else None]
+        mv(st, "snap_quiet", "start", s, s2)
+        mv(st, "snap_quiet", "end", e, e2)
         s, e = s2, e2
         cs, lead = lead_pad(pcm, a, ref, s)
         ce, trail = trail_pad(pcm, a, ref, e)
+        mv(st, "lead_pad", "start", s, cs)
+        mv(st, "trail_pad", "end", e, ce)
     else:
         cs, ce = s, e
     song_s, song_e = s, e                                 # 곡 자체 경계(여유 제외); 이후 s, e = 실제 컷
+    if wav:
+        mv(st, "tail", "end", ce, max(ce, song_e + TAIL))
     ce = max(ce, song_e + TAIL) if wav else ce        # 페이드는 곡 끝 이후 여유에서만 -> 컷을 곡 끝 +1.0초 이상으로(wav 없으면 카드 e 를 곡 끝으로 보고 그대로)
     s, e = cs, ce
     ns, ne = s - off, e - off
@@ -204,7 +216,7 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ct
     m = check(mp4, dur, s, e, wav, fade_st)
     meta = dict(rule=RULE, src=str(src), card_idx=card["idx"], vod_start=s, vod_end=e, card_start=card["start"], card_end=card["end"], offset=off, src_start=ns, src_end=ne, song_len=song_e - song_s, clip_len=dur,
                 song_start=song_s, song_end=song_e, lead=lead, trail=trail, tier="likely" if likely else tier, likely=card.get("likely"), code=code_of(card.get("tier_why")),
-                tier_why=card.get("tier_why"), why=[x for x in adj if x], boundary=card.get("boundary"), signals=card.get("signals"), scene=card.get("scene"), multi=card.get("multi"),
+                tier_why=card.get("tier_why"), why=[x for x in adj if x], boundary=card.get("boundary"), stages=stages_of(card, st), signals=card.get("signals"), scene=card.get("scene"), multi=card.get("multi"),
                 ctx_start_in_ctx=ns - c0, limiter=LIMITER, fade=[round(fade_st, 3), round(fade_d, 3)], encoder=enc, check=m, ok=m["ok"], files=dict(final=mp4.name, ctx20=None if no_ctx else ctx.name), note="likely, 미검증 (사람 검수 전, route.mark_likely 조건만 통과)" if likely else None)
     tmp = js.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf8")
@@ -261,6 +273,7 @@ def selftest():
     assert i == SR * 20 and q > 50
     assert hms6(3725.4) == "010205"
     assert FADE >= TAIL >= 1.0 and RULE == "v4-faithful"
+    assert stages_of({}, [1]) == [1] and stages_of({"boundary": {"stages": [0]}}, [1]) == [0, 1]
     print("selftest ok")
 
 

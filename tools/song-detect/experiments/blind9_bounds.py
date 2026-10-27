@@ -168,7 +168,7 @@ def propose(out, which):
         g = fix(pcm, a, dict(keep=True, start=r0, end=r1, len=r1 - r0), voc)
         ref = float(np.median(rms_db(pcm, g["start"], g["end"])[1]))
         s, e = snap_quiet(pcm, a, g["start"], ref)[0], snap_quiet(pcm, a, g["end"], ref)[0]
-        res.append(dict(slug=x["slug"], song_start=s, song_end=e, rule="proposal", idx=L.index(x) + 1, base=(j["song_start"], j["song_end"]), why_snap=g.get("why_snap")))
+        res.append(dict(slug=x["slug"], song_start=s, song_end=e, rule="proposal", idx=L.index(x) + 1, base=(j["song_start"], j["song_end"]), why_snap=(g.get("why_snap") or "").startswith("snap 결과 이상")))
     undo()
     Path(out).write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf8")
     mv = [g for g in res if abs(g["song_start"] - g["base"][0]) > 0.05 or abs(g["song_end"] - g["base"][1]) > 0.05]

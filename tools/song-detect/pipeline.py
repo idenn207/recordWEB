@@ -25,7 +25,7 @@ def card(g, i, clip=None):
         idx=i, start=g["start"], end=g["end"], len=g["len"], tier=g["tier"], tier_why=g["tier_why"],
         scene=g.get("scene"), multi=g.get("multi"), likely=g.get("likely", False), weak=g.get("weak", False), ref_bd=g.get("ref_bd"), multi_why=g.get("multi_why"),
         boundary=dict(detect=[g.get("start0", g["start"]), g.get("end0", g["end"])], refine=[g.get("start1", g["start"]), g.get("end1", g["end"])], final=[g["start"], g["end"]],
-                      why_snap=g.get("why_snap")),
+                      why_snap=g.get("why_snap"), stages=g.get("stages")),
         signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk")}, clip=clip)
 
 
