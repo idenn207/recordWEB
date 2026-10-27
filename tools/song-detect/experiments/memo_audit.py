@@ -268,7 +268,7 @@ def report(label, ev):
 
 
 def flat(d, p=""):
-    return {p + k: v for k, v in d.items() if not isinstance(v, (dict, list))} | {kk: vv for k, v in d.items() if isinstance(v, dict) for kk, vv in flat(v, p + k + ".").items()}
+    return {p + str(k): v for k, v in d.items() if not isinstance(v, (dict, list))} | {kk: vv for k, v in d.items() if isinstance(v, dict) for kk, vv in flat(v, p + k + ".").items()}
 
 
 def run(argv):
