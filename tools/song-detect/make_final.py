@@ -192,6 +192,7 @@ def stages_of(card, st):
 
 def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ctx=False):
     s, e, tier = card["start"], card["end"], card["tier"]
+    alt = (card.get("boundary") or {}).get("alt_start") if tier != "auto" else None      # S3 시작 제안(snap.start_s3)은 auto 가 아닌 곡에만: 승인 라이브 경계는 건드리지 않는다
     pcm = a = None
     adj, lead, trail = [], dict(pad=0.0), dict(pad=0.0)
     st = []                                               # 카드 경계 -> 컷의 규칙별 이동(snap_quiet, lead_pad, trail_pad, tail)
@@ -200,6 +201,8 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ct
         from snap import mv, pcm_of, rms_db
         pcm, a = pcm_of(wav), np.load(cache_of(wav, ".scores.npy"))
         ref = float(np.median(rms_db(pcm, s, e)[1]))
+        if alt:
+            s = mv(st, "S3", "start", s, alt)
         s2, m1 = snap_quiet(pcm, a, s, ref)
         e2, m2 = snap_quiet(pcm, a, e, ref)
         adj = [("start", s, s2) if m1 else None, ("end", e, e2) if m2 else None]

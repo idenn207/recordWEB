@@ -35,6 +35,8 @@ def current(vid, rs, re_):
         pass
     g["tier"], g["tier_why"] = route.tier(g, sc["has_refs"])
     route.known_pos(vid, g); route.known_neg(vid, g)
+    if g["tier"] != "auto" and c["alt_s"] is not None:           # make_final 과 같이 S3 시작 제안은 auto 가 아닌 곡에만 쓴다(등급은 제안 적용 전 경계로 정한 그대로)
+        c = E.calc(vid, rs, re_, use_alt=True)
     return dict(s=c["song_s"], e=c["song_e"], clip=c["clip_e"] - c["clip_s"], tier=g["tier"], why=g["tier_why"])
 
 

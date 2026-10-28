@@ -283,6 +283,39 @@ def start_s2(a, voc, s, vmin=0.6, mumin=0.2, spmax=0.1, maxback=30.0):
     return new
 
 
+S3_BACK, S3_DEEP, S3_MINLEN, S3_SPF, S3_MOVE = 30.0, -50.0, 0.5, 0.4, 1.0   # S3 제안: 시작 앞 탐색 범위(초), 깊은 무음 절대 dB, 무음 최소 길이(초), 사이 말 프레임 비율 상한, 최소 이동(초)
+
+
+def start_s3(pcm, a, s, s0):
+    """S3 시작 제안(snap 에서 적용하지 않고 finalize 가 g['alt_start'] 로만 기록, make_final 이 auto 가 아닌 곡에만 씀): s 앞 S3_BACK 초 안의 마지막 깊은 무음(S3_DEEP dB 미만, S3_MINLEN 초 이상)이 끝나는 곳.
+    전주/호흡/허밍이 detect 에서 빠지고 시작이 늦게 잡힌 곡(blind9 #44 #50 #54 #65, 격자 25개 + 위원회 실험 cache/proto_boundary)을 되찾는다. 가드: 규칙 S1 이 시작을 뒤로 민 곡(s-s0>1)은 제외, 무음~s 사이 Speech>0.5 프레임이 S3_SPF 이상이면 말 구간이라 제외,
+    사이 (Singing+Music) 평균이 EXT_MU 미만이면 음악이 아니라 제외(lead_start 와 같은 상수), 이동이 S3_MOVE 초 미만이면 제외. 못 찾으면 s.
+    shortcut: 승인 라이브 5곡은 승인 시작이 음악 시작보다 늦다(전주 제외 의도 미확인)라 auto 에 적용하지 않는다. #60(사용자가 시작 OK 라고 한 곡)처럼 앞에 멘트/박수가 낀 곡을 못 거른다(표본 1건)."""
+    if s - s0 > 1.0:
+        return s
+    ts, db = rms_db(pcm, s - S3_BACK, s)
+    if len(ts) < 2:
+        return s
+    deep, j, k = db < S3_DEEP, len(ts), None
+    while j > 0:                                         # 뒤에서 앞으로 첫(=마지막) 깊은 무음 구간
+        if deep[j - 1]:
+            i = j
+            while i > 0 and deep[i - 1]:
+                i -= 1
+            if (j - i) * FR >= S3_MINLEN:
+                k = j
+                break
+            j = i
+        else:
+            j -= 1
+    if k is None or k >= len(ts) or s - ts[k] < S3_MOVE:
+        return s
+    seg = a[int(ts[k] / HOP):int(s / HOP)]
+    if len(seg) == 0 or (seg[:, 1] > 0.5).mean() >= S3_SPF or (seg[:, 0] + seg[:, 2]).mean() < EXT_MU:
+        return s
+    return float(ts[k])
+
+
 def mv(trace, rule, edge, before, after):
     """경계 이동 기록: trace 가 리스트일 때만 {rule, edge, before, after, shift} 를 추가(0.01초 미만은 생략)하고 after 를 그대로 돌려준다."""
     if trace is not None and abs(after - before) >= 0.01:
@@ -393,6 +426,15 @@ def selftest():
     tr = []
     assert snap(p3, a3, 21.0, 70.0, None, tr) == snap(p3, a3, 21.0, 70.0)       # trace 는 결과를 바꾸지 않고
     assert tr and {x["rule"] for x in tr} <= {"cliff", "bridge", "quiet", "E1", "E1b", "E3", "lead_start", "S1", "S2"}, tr    # 이동마다 규칙 이름이 붙는다
+    p6 = np.full(sr * 100, 3000, np.int16)
+    p6[sr * 30:sr * 40] = 0                              # 30~40초 깊은 무음, 그 뒤 소리(음악)가 시작 50초까지 이어짐
+    a6 = np.zeros((200, 3), np.float32)
+    a6[80:100, 2] = 0.8
+    assert abs(start_s3(p6, a6, 50.0, 50.0) - 40.0) < 0.15 and start_s3(p6, a6, 50.0, 40.0) == 50.0       # 무음 끝으로 제안, S1 이 민 곡(s-s0>1)은 건너뜀
+    a6[80:100, 2] = 0.0
+    assert start_s3(p6, a6, 50.0, 50.0) == 50.0                                                           # 사이가 음악이 아니면 제안 없음
+    a6[80:100, 2], a6[80:100, 1] = 0.8, 0.9
+    assert start_s3(p6, a6, 50.0, 50.0) == 50.0                                                           # 사이가 말이면 제안 없음
     print("selftest ok")
 
 
