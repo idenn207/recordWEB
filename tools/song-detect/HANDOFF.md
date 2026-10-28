@@ -526,4 +526,4 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - (a) 시각 점수 review 정렬: 노출 N 이 vis 가 낮아 상위 10곡 중 N 2(무작위 1). (b) 규칙 AND 학습형 weak(CRC): alpha 0.05 에서 라이브 손실 증가 또는 N 1~2곡 이득. (c) asr 가사 힌트: 통합 경계에서 끝 tp 3/12 fp 1/31, 시작 tp 4/9 fp 1/36, 연결 비용 대비 이득 작아 미연결. (d) YAMNet 추가 클래스: 시작 late 와 구별 못 함(AUROC 0.23~0.76, 허밍 #65 의 Humming 0.02).
 
 ### 한계
-- 귀로 못 들음(S3 #50 #65 등 unverifiable). n_visual 은 표본 내 보정이고 golden gate 는 weak/vis 를 안 본다(shadow diff 와 golden 직접 점수로 확인). reroute --manifest 는 메인 out/ 에 끝까지 돌리지 않았다(산출물 보호).
+- 귀로 못 들음(S3 #50 #65 등 unverifiable). n_visual 은 표본 내 보정이고 golden gate 는 weak/vis 를 안 본다(shadow diff 와 golden 직접 점수로 확인). reroute --manifest 는 임시 폴더(2방송)에서 NAS 재계산과 vis 까지 끝까지 시험했고 61방송 메인 out/ 에는 돌리지 않았다(산출물 보호, 처음 실행은 191후보 전부를 읽어 약 25분).
