@@ -98,8 +98,6 @@ def selftest():
     print("asr_bounds selftest ok")
 
 
-if __name__ == "__main__":
-    selftest() if sys.argv[1:] == ["selftest"] else print(__doc__)
 
 
 # ---- 경계 검증/제안 -------------------------------------------------------------------------------------------------
@@ -146,3 +144,34 @@ def extent(ly, s, e, gap=30.0, k=3):
     ov = lambda c: max(0.0, min(e, max(x[1] for x in c)) - max(s, c[0][0]))
     c = max(cl, key=ov)
     return (c[0][0], max(x[1] for x in c), len(c)) if ov(c) > 0 and len(c) >= k else None
+
+
+def propose(ly, s, e, k=3, gap=8.0, W=20.0, pad_e=1.5):
+    """카드에 붙일 후보 경계 제안(적용하지 않음, B/review 카드 전용): 끝 뒤로 가사가 이어지면 end_to, 시작 앞으로 가사가 이어지면 start_to 와 근거 단어 수.
+    반환 dict(end_to?, end_words?, start_to?, start_words?). 제안 없으면 {}. 실측(메모 감사): 끝 early 12곡 중 4~5곡 플래그(음성 1/31), 시작은 정답 곡을 20초 이상 지나쳐 auto 에는 쓰면 안 된다."""
+    out = {}
+    r = chain_end(ly, e, W, gap)
+    if r and r[1] >= k and r[0] > e + 3.0:
+        out.update(end_to=round(r[0] + pad_e, 2), end_words=r[1])
+    r = chain_start(ly, s, W, gap)
+    if r and r[1] >= k and r[0] < s - 3.0:
+        out.update(start_to=round(r[0], 2), start_words=r[1])
+    return out
+
+
+def _selftest_propose():
+    mk = lambda t: (t, t + .5, "x", .9, .5, .1, .5)
+    ly = [mk(t) for t in range(90, 110, 2)]                 # 90~110초 가사
+    p = propose(ly, 20.0, 100.0)
+    assert p["end_to"] > 100 and p["end_words"] >= 3 and "start_to" not in p, p
+    assert propose([mk(t) for t in range(10, 40, 2)], 20.0, 30.0)["end_to"] > 30        # 끝 뒤로 이어짐
+    assert propose(ly, 95.0, 109.0) == {} or "end_to" not in propose(ly, 95.0, 120.0)   # 끝 뒤 가사 없음
+    assert propose(ly, 80.0, 120.0) == {}
+    print("asr_bounds propose selftest ok")
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] == ["selftest"]:
+        selftest(); _selftest_propose()
+    else:
+        print(__doc__)
