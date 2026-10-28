@@ -1,0 +1,10 @@
+ok
+pool ok
+eligible ok
+known_pos ok
+likely ok
+motion ok
+n_signals ok
+boundary_ok ok
+exit 0
+n_asr selftest ok {'talk_near': 0.0, 'talk_in': 0.0, 'lyr_wpm': 1.2, 'lyr_cov': 0.03, 'hall': 0.0}

@@ -1,0 +1,32 @@
+행 104 (N 55, 라이브 49), 전사 t_small_auto
+특징               AUROC(N 이 큰 쪽)         95% 구간 | 유형별 AUROC(N 유형 vs 라이브)
+talk_near                  0.44 [0.25,0.66] | {'afk_bgm': 0.29, 'bgm_chat': 0.08, 'cover_watch': 0.93, 'game_ost': 0.29, 'gta_karaoke': 0.6, 'other_live_watch': 0.65, 'rhythm_game': 0.21, 'sing_along': 0.51}
+talk_in                    0.52 [0.39,0.66] | {'afk_bgm': 0.4, 'bgm_chat': 0.68, 'cover_watch': 0.68, 'game_ost': 0.79, 'gta_karaoke': 0.24, 'other_live_watch': 0.67, 'rhythm_game': 0.39, 'sing_along': 0.63}
+lyr_wpm                    0.15 [0.05,0.28] | {'afk_bgm': 0.14, 'bgm_chat': 0.1, 'cover_watch': 0.32, 'game_ost': 0.03, 'gta_karaoke': 0.41, 'other_live_watch': 0.07, 'rhythm_game': 0.02, 'sing_along': 0.11}
+lyr_cov                    0.14 [0.04,0.24] | {'afk_bgm': 0.1, 'bgm_chat': 0.15, 'cover_watch': 0.22, 'game_ost': 0.03, 'gta_karaoke': 0.37, 'other_live_watch': 0.07, 'rhythm_game': 0.02, 'sing_along': 0.14}
+hall                       0.70 [0.61,0.82] | {'afk_bgm': 0.86, 'bgm_chat': 0.66, 'cover_watch': 0.62, 'game_ost': 0.42, 'gta_karaoke': 0.68, 'other_live_watch': 0.69, 'rhythm_game': 0.86, 'sing_along': 0.68}
+active_frac                0.24 [0.08,0.45] | {'afk_bgm': 0.03, 'bgm_chat': 0.02, 'cover_watch': 0.46, 'game_ost': 0.0, 'gta_karaoke': 0.56, 'other_live_watch': 0.54, 'rhythm_game': 0.01, 'sing_along': 0.2}
+voiced_frac                0.41 [0.26,0.59] | {'afk_bgm': 0.69, 'bgm_chat': 0.44, 'cover_watch': 0.29, 'game_ost': 0.29, 'gta_karaoke': 0.29, 'other_live_watch': 0.49, 'rhythm_game': 0.06, 'sing_along': 0.86}
+poly_frac                  0.58 [0.41,0.73] | {'afk_bgm': 0.3, 'bgm_chat': 0.57, 'cover_watch': 0.71, 'game_ost': 0.72, 'gta_karaoke': 0.66, 'other_live_watch': 0.52, 'rhythm_game': 0.95, 'sing_along': 0.12}
+stem_rel_db                0.30 [0.09,0.52] | {'afk_bgm': 0.3, 'bgm_chat': 0.1, 'cover_watch': 0.24, 'game_ost': 0.01, 'gta_karaoke': 0.44, 'other_live_watch': 0.63, 'rhythm_game': 0.06, 'sing_along': 0.43}
+rel_db                     0.18 [0.03,0.36] | {'afk_bgm': 0.0, 'bgm_chat': 0.01, 'cover_watch': 0.27, 'game_ost': 0.0, 'gta_karaoke': 0.75, 'other_live_watch': 0.1, 'rhythm_game': 0.0, 'sing_along': 0.02}
+bursts                     0.83 [0.70,0.94] | {'afk_bgm': 0.85, 'bgm_chat': 0.99, 'cover_watch': 0.6, 'game_ost': 1.0, 'gta_karaoke': 0.49, 'other_live_watch': 0.93, 'rhythm_game': 0.9, 'sing_along': 1.0}
+speech                     0.81 [0.65,0.93] | {'afk_bgm': 0.79, 'bgm_chat': 0.93, 'cover_watch': 0.6, 'game_ost': 0.99, 'gta_karaoke': 0.49, 'other_live_watch': 0.92, 'rhythm_game': 0.95, 'sing_along': 0.95}
+
+기존 신호(rel_db/bursts)가 못 거른 N 18/48 (표 겹침 91행), 라이브 43
+  talk_near    방향 N 작음 임계   -0.600 추가 포착  0/18  라이브 손실 0/43  {}
+  talk_in      방향 N 큼 임계   58.984 추가 포착  0/18  라이브 손실 0/43  {}
+  lyr_wpm      방향 N 작음 임계  -10.857 추가 포착  0/18  라이브 손실 0/43  {}
+  lyr_cov      방향 N 작음 임계   -0.090 추가 포착  0/18  라이브 손실 0/43  {}
+  hall         방향 N 큼 임계    1.074 추가 포착  0/18  라이브 손실 0/43  {}
+  active_frac  방향 N 작음 임계    0.444 추가 포착  0/18  라이브 손실 0/43  {}
+  voiced_frac  방향 N 작음 임계    0.249 추가 포착  0/18  라이브 손실 0/43  {}
+  poly_frac    방향 N 큼 임계    0.643 추가 포착  0/18  라이브 손실 0/43  {}
+  stem_rel_db  방향 N 작음 임계  -23.322 추가 포착  0/18  라이브 손실 0/43  {}
+
+[라이브 하위/상위 분위수 임계에서의 포착-손실 곡선: 기존 신호가 못 거른 N 대상]
+  lyr_wpm      N 작음 | q0%: 포착 0/18 손실 0/43 | q2.5%: 포착 5/18 손실 2/43 | q5%: 포착 5/18 손실 3/43 | q10%: 포착 5/18 손실 5/43
+  lyr_cov      N 작음 | q0%: 포착 0/18 손실 0/43 | q2.5%: 포착 4/18 손실 2/43 | q5%: 포착 4/18 손실 3/43 | q10%: 포착 5/18 손실 5/43
+  hall         N 큼 | q0%: 포착 0/18 손실 0/43 | q2.5%: 포착 3/18 손실 2/43 | q5%: 포착 3/18 손실 3/43 | q10%: 포착 4/18 손실 5/43
+  active_frac  N 작음 | q0%: 포착 1/18 손실 0/43 | q2.5%: 포착 2/18 손실 2/43 | q5%: 포착 2/18 손실 3/43 | q10%: 포착 2/18 손실 5/43
+  stem_rel_db  N 작음 | q0%: 포착 0/18 손실 0/43 | q2.5%: 포착 0/18 손실 2/43 | q5%: 포착 1/18 손실 3/43 | q10%: 포착 2/18 손실 5/43

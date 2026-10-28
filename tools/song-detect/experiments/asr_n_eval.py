@@ -35,10 +35,27 @@ def table(tx):
     return pd.DataFrame(rows)
 
 
+def table_sig(tx):
+    """창 목록(asr_windows.py: 신호 표 163행 + golden 승인 라이브 47곡) 전체. golden 행은 N=0, 신호 표 열(rel_db/bursts)은 없다. 그룹 = 방송."""
+    sig = pd.read_csv(ROOT / "cache/audit/signals.csv", dtype={"vno": str}, keep_default_na=True, na_values=[""])
+    rows = []
+    for w in json.load(open(ROOT / "cache/proto_asr/windows.json", encoding="utf8")):
+        d = B.load_tx(tx, w["gid"])
+        if not d:
+            continue
+        f = n_asr.features(d, B.scores(w["vno"]), *w["base"])
+        m = sig[(sig.vno == w["vno"]) & (abs(sig.start - w["base"][0]) < 1)]
+        r = dict(gid=w["gid"], vno=w["vno"], tag=(m.iloc[0].tag if len(m) else "golden"), N=int(m.iloc[0].live == 0) if len(m) else 0, **f)
+        if len(m):
+            r.update(rel_db=m.iloc[0].rel_db, bursts=m.iloc[0].bursts_per_min, speech=m.iloc[0].speech)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--tx", default="t_small_auto"); ap.add_argument("--boot", type=int, default=1000)
+    ap = argparse.ArgumentParser(); ap.add_argument("--tx", default="t_small_auto"); ap.add_argument("--boot", type=int, default=1000); ap.add_argument("--sig", action="store_true", help="창 목록(신호 표+golden) 전체로")
     a = ap.parse_args()
-    df = table(a.tx)
+    df = table_sig(a.tx) if a.sig else table(a.tx)
     feats = [c for c in df.columns if c not in ("gid", "vno", "tag", "N")]
     rng = np.random.default_rng(0)
     print(f"행 {len(df)} (N {int(df.N.sum())}, 라이브 {int((1 - df.N).sum())}), 전사 {a.tx}")
@@ -62,7 +79,7 @@ if __name__ == "__main__":
     # 추가 포착: 기존 신호가 못 거른 N
     d2 = df.dropna(subset=["rel_db", "bursts"])
     rest = d2[(d2.N == 1) & (d2.rel_db >= -5.7) & (d2.bursts <= 2.1)]
-    live = d2[d2.N == 0]
+    live = df[df.N == 0]        # 임계는 rel_db 가 없는 golden 라이브까지 포함해 잡는다(더 보수적)
     print(f"\n기존 신호(rel_db/bursts)가 못 거른 N {len(rest)}/{int(d2.N.sum())} (표 겹침 {len(d2)}행), 라이브 {len(live)}")
     for c in feats:
         if c in ("rel_db", "bursts", "speech") or c not in d2 or d2[c].isna().all():
@@ -76,7 +93,7 @@ if __name__ == "__main__":
         hit = rest[(rest[c] > th) if sgn > 0 else (rest[c] < th)]
         lost = int(((live[c] > th) if sgn > 0 else (live[c] < th)).sum())
         print(f"  {c:12} 방향 {'N 큼' if sgn > 0 else 'N 작음'} 임계 {th:8.3f} 추가 포착 {len(hit):2}/{len(rest)}  라이브 손실 {lost}/{len(live)}  {dict(hit.tag.value_counts())}")
-    df.to_csv(ROOT / "cache/proto_asr/n_features.csv", index=False)
+    df.to_csv(ROOT / ("cache/proto_asr/n_features_sig.csv" if a.sig else "cache/proto_asr/n_features.csv"), index=False)
     print("\n[라이브 하위/상위 분위수 임계에서의 포착-손실 곡선: 기존 신호가 못 거른 N 대상]")
     for c in feats:
         if c in ("rel_db", "bursts", "speech") or c not in d2 or d2[c].isna().all() or res.get(c, {}).get("auc", .5) in (None,):

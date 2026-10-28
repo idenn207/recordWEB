@@ -1,0 +1,39 @@
+[stale_v3] 숫자 정답 13곡-경계(22행): hit@0.5 0  hit@3 0  hit@10 4  중앙|오차| 31.35s  asym(자름 1초/남음 3초) 0  (수동 감사 판정과 7/13 일치) | 경계 좋음 유지 67/67 | 방향 0/27 | 길이 10곡 중 오차>5초 8 (중앙 28.67s) | 라이브 곡 사라짐 0 | 한 곡 산출물 2개 이상 0
+[current] 숫자 정답 13곡-경계(22행): hit@0.5 5  hit@3 9  hit@10 11  중앙|오차| 1.9s  asym(자름 1초/남음 3초) 8  (수동 감사 판정과 11/13 일치) | 경계 좋음 유지 67/67 | 방향 13/27 | 길이 10곡 중 오차>5초 2 (중앙 1.55s) | 라이브 곡 사라짐 0 | 한 곡 산출물 2개 이상 0
+[engine] 숫자 정답 13곡-경계(22행): hit@0.5 5  hit@3 9  hit@10 11  중앙|오차| 1.9s  asym(자름 1초/남음 3초) 8  (수동 감사 판정과 11/13 일치) | 경계 좋음 유지 67/67 | 방향 13/27 | 길이 10곡 중 오차>5초 2 (중앙 1.55s) | 라이브 곡 사라짐 0 | 한 곡 산출물 2개 이상 0
+
+숫자 정답별 오차(after - 정답, 초): stale_v3 -> current -> engine
+  #20 (2행)   start audio         +51.6 ->   +42.4 ->   +42.4  무음(-95dB)에서 곡 시작, 곡 337.9초 = 메모 '5분 정도'
+  #20 (2행)   end   audio        -150.0 ->    +2.4 ->    +2.4  소리 절벽
+  #24 (2행)   end   audio         -47.0 ->    +0.5 ->    +0.5  곡 소리가 -25 -> -80dB 로 끊김, 승인 끝과 0.9초
+  #26 (2행)   end   audio        -148.5 ->    +0.0 ->    +0.0  보컬 29250 뒤 MR 아웃트로, MR 정지 후 멘트
+  #44 (1행)   start playlist      +31.3 ->   +25.8 ->   +25.8  재생목록 위치 정답(사람 검수)
+  #47 (1행)   start memo          -26.0 ->    -1.9 ->    -1.9  메모 시각(클립 상대초 -> 방송 절대초)
+  #49 (2행)   start memo          -28.1 ->    +0.4 ->    +0.4  메모 시각(클립 상대초 -> 방송 절대초)
+  #49 (2행)   end   playlist      -31.7 ->    -0.9 ->    -0.9  재생목록 위치 정답(사람 검수)
+  #52 (2행)   start memo           -6.0 ->    +1.9 ->    +1.9  메모 시각(클립 상대초 -> 방송 절대초)
+  #54 (2행)   start audio          +6.7 ->    +6.7 ->    +6.7  -44dB 딥 뒤 저음량 MR 전주 시작, 메모 '약 5초 앞'과 1.7초 차
+  #60 (1행)   end   memo          +33.6 ->    +0.3 ->    +0.3  메모 시각(클립 상대초 -> 방송 절대초)
+  #111(1행)   start memo           -3.7 ->    -3.7 ->    -3.7  메모 시각(클립 상대초 -> 방송 절대초)
+  #112(2행)   end   memo           +6.0 ->    +0.4 ->    +0.4  메모 시각(클립 상대초 -> 방송 절대초)
+[current] 실패 14: #22edir+0.0 #50sdir+0.0 #54sdir+0.0 #54edir+0.0 #58sdir+0.0 #63edir+0.0 #65sdir+0.0 #65edir+0.0 #71edir+0.0 #82edir+0.0 #111sdir+0.0 #129sdir+0.0 #142edir+0.0 #144sdir+0.0
+[engine] 실패 14: #22edir+0.0 #50sdir+0.0 #54sdir+0.0 #54edir+0.0 #58sdir+0.0 #63edir+0.0 #65sdir+0.0 #65edir+0.0 #71edir+0.0 #82edir+0.0 #111sdir+0.0 #129sdir+0.0 #142edir+0.0 #144sdir+0.0
+engine 대 current json 곡 경계 차이: 최대 0.00s, 0.1초 초과 0/133  (json 은 이전 코드로 만든 산출물이라 규칙을 바꾼 뒤에는 차이가 정상)
+
+화면 tag 별 게이트 예측 (통과 = N 은 drop/weak, 라이브는 노출): tag n noreg prod | noreg 분포
+  afk_bgm            9   5   9 | {'weak': 5, 'review': 4}
+  bgm_chat           5   2   5 | {'drop': 1, 'weak': 1, 'review': 3}
+  cover_watch        4   3   4 | {'weak': 2, 'drop': 1, 'review': 1}
+  game_ost           6   4   6 | {'review': 2, 'drop': 2, 'weak': 2}
+  gta_karaoke        9   8   9 | {'drop': 4, 'weak': 4, 'review': 1}
+  listen_watch       1   0   1 | {'review': 1}
+  live              41  41  41 | {'review': 41}
+  other_live_watch  10   2  10 | {'review': 8, 'weak': 2}
+  rhythm_game        8   6   8 | {'weak': 4, 'review': 2, 'drop': 2}
+  sing_along         3   2   3 | {'review': 1, 'weak': 2}
+  sync_room          8   8   8 | {'review': 8}
+stale 쌍: {'pairs': 41, 'rows': 82, 'label_mixed': [[135, 134]], 'approved_boundary_ok_conflict': []} 
+exists: [{'n': 64, 'tier': 'drop', 'why': '방송 시작 대기시간(앞 5분)', 'ok': False}]
+청취 필요(unverifiable) 점검 31건, unresolved(사용자 답 대기, 규칙 변경 안 함) 5건: [18, 22, 45, 82, 'all']
+저장본(baseline) 대비 달라진 지표: {'summary.current.hit@0.5': (4, 5), 'summary.current.hit@3': (7, 9), 'summary.current.hit@10': (9, 11), 'summary.current.asym_pass': (6, 8), 'summary.current.manual_agree': (13, 11), 'summary.current.dir_pass': (11, 13), 'summary.current.len_err_gt5': (3, 2), 'summary.current.len_median_abs_err': (1.9, 1.55)}
+exit 0

@@ -1,0 +1,2 @@
+[end] 방송 hold-out 합산 tp 3/10 fp 0/26 | 표본 내 최적 (3, 15) -> tp/fp (4, 10, 0, 26) | 폴드별 선택 분포 {np.str_('3,15'): np.int64(14), np.str_('3,4'): np.int64(1)}
+[start] 방송 hold-out 합산 tp 0/6 fp 1/34 | 표본 내 최적 (8, 5) -> tp/fp (1, 6, 0, 34) | 폴드별 선택 분포 {np.str_('5,5'): np.int64(1), np.str_('8,4'): np.int64(1), np.str_('8,5'): np.int64(13)}

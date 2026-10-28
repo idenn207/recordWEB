@@ -1,0 +1,19 @@
+행 210 (N 75, 라이브 135), 전사 t_multi_sig
+특징               AUROC(N 이 큰 쪽)         95% 구간 | 유형별 AUROC(N 유형 vs 라이브)
+talk_near                  0.57 [0.39,0.70] | {'afk_bgm': 0.41, 'bgm_chat': 0.17, 'cover_watch': 0.85, 'game_ost': 0.54, 'gta_karaoke': 0.8, 'idle_screen': 0.15, 'other_live_watch': 0.76, 'rhythm_game': 0.37, 'sing_along': 0.69}
+talk_in                    0.54 [0.39,0.72] | {'afk_bgm': 0.44, 'bgm_chat': 0.47, 'cover_watch': 0.63, 'game_ost': 0.8, 'gta_karaoke': 0.33, 'idle_screen': 0.35, 'other_live_watch': 0.68, 'rhythm_game': 0.52, 'sing_along': 0.61}
+lyr_wpm                    0.15 [0.09,0.24] | {'afk_bgm': 0.08, 'bgm_chat': 0.03, 'cover_watch': 0.22, 'game_ost': 0.02, 'gta_karaoke': 0.31, 'idle_screen': 0.54, 'other_live_watch': 0.06, 'rhythm_game': 0.02, 'sing_along': 0.03}
+lyr_cov                    0.14 [0.08,0.23] | {'afk_bgm': 0.05, 'bgm_chat': 0.09, 'cover_watch': 0.16, 'game_ost': 0.02, 'gta_karaoke': 0.31, 'idle_screen': 0.57, 'other_live_watch': 0.03, 'rhythm_game': 0.02, 'sing_along': 0.04}
+hall                       0.68 [0.59,0.76] | {'afk_bgm': 0.84, 'bgm_chat': 0.79, 'cover_watch': 0.63, 'game_ost': 0.45, 'gta_karaoke': 0.63, 'idle_screen': 0.41, 'other_live_watch': 0.72, 'rhythm_game': 0.86, 'sing_along': 0.67}
+
+기존 신호(rel_db/bursts)가 못 거른 N 38/75 (표 겹침 162행), 라이브 135
+  talk_near    방향 N 큼 임계  114.900 추가 포착  0/38  라이브 손실 0/135  {}
+  talk_in      방향 N 큼 임계   74.139 추가 포착  0/38  라이브 손실 0/135  {}
+  lyr_wpm      방향 N 작음 임계  -13.852 추가 포착  0/38  라이브 손실 0/135  {}
+  lyr_cov      방향 N 작음 임계   -0.093 추가 포착  0/38  라이브 손실 0/135  {}
+  hall         방향 N 큼 임계    1.058 추가 포착  0/38  라이브 손실 0/135  {}
+
+[라이브 하위/상위 분위수 임계에서의 포착-손실 곡선: 기존 신호가 못 거른 N 대상]
+  lyr_wpm      N 작음 | q0%: 포착 0/38 손실 0/135 | q2.5%: 포착 8/38 손실 4/135 | q5%: 포착 15/38 손실 7/135 | q10%: 포착 15/38 손실 14/135
+  lyr_cov      N 작음 | q0%: 포착 0/38 손실 0/135 | q2.5%: 포착 9/38 손실 4/135 | q5%: 포착 15/38 손실 7/135 | q10%: 포착 18/38 손실 14/135
+  hall         N 큼 | q0%: 포착 0/38 손실 0/135 | q2.5%: 포착 3/38 손실 4/135 | q5%: 포착 3/38 손실 7/135 | q10%: 포착 10/38 손실 14/135
