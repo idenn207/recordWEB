@@ -14,6 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "experiments"))
 os.chdir(ROOT)
+import tune  # SONG_TUNE 환경변수가 있으면 상수 오버라이드(tune.py 참고), 없으면 아무 일도 안 한다
 import numpy as np
 
 BD = ROOT / "data/review/blind9"
