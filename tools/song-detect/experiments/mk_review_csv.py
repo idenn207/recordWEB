@@ -1,13 +1,15 @@
 """사용자 판정용 csv/xlsx 생성: out/final(auto)와 out/final_review(review) 의 v4 완성본마다 한 줄. 사용: python experiments/mk_review_csv.py <출력폴더>
 판정 열(L 라이브/N 아님/B 라이브지만 경계 문제)과 메모만 채우면 된다. Excel 에서 열리도록 utf-8-sig + 전체 인용."""
 import csv, glob, json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from make_final import RULE
 out = sys.argv[1]
 os.makedirs(out, exist_ok=True)
 H = ["priority", "tier", "file", "folder", "streamer", "date", "start_in_broadcast", "len_sec", "code", "likely", "tier_why",
      "self_screen", "self_start", "self_end", "self_confidence", "self_note", "prev_clip_len", "shift_start", "shift_end", "deviation", "판정(L/N/B)", "메모"]
-SC = {v["clip"]: v for v in json.load(open("data/review/blind11/self_check.json", encoding="utf8")).values()}  # 자체 시청 검수(self_check_build)
+SC = {v["clip"]: v for v in json.load(open("data/review/blind12/self_check.json", encoding="utf8")).values()}  # 자체 시청 검수(self_check_build)
 PREV = {}  # 이전 규칙(v4) 클립: (방송 슬러그 뒷부분, 카드번호) -> json
-for d in ("out/stale_v4/final", "out/stale_v4/final_review"):
+for d in ("out/stale_v5/final", "out/stale_v5/final_review"):
     for p in glob.glob(f"{d}/*/*.json"):
         if not p.endswith("_ctx20.json"):
             q = json.load(open(p, encoding="utf8")); PREV[("_".join(os.path.basename(os.path.dirname(p)).split("_")[2:]), q["card_idx"])] = q
@@ -15,7 +17,7 @@ rows = []
 for tier, d in (("review", "out/final_review"), ("auto", "out/final")):
     for p in sorted(glob.glob(f"{d}/*/*.json")):
         j = json.load(open(p, encoding="utf8"))
-        if j.get("rule") != "v5-bounds" or not j.get("ok") or p.endswith("_ctx20.json"):
+        if j.get("rule") != RULE or not j.get("ok") or p.endswith("_ctx20.json"):
             continue
         slug = os.path.basename(os.path.dirname(p)).split("_")
         t = int(j["src_start"])

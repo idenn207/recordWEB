@@ -5,7 +5,7 @@ import glob, json, sys
 from collections import Counter
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-B = ROOT / "cache/regen/before_cards.json"
+B = ROOT / "cache/regen_v6/before_cards.json"      # v5 -> v6(통합) 비교. v4 -> v5 때의 파일은 cache/regen/before_cards.json
 
 
 def cards():

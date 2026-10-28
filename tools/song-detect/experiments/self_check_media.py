@@ -11,8 +11,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from paths import cache_of
 from snap import rms_db
+from make_final import RULE
 
-OUT = ROOT / "cache/regen/media"
+OUT = ROOT / "cache/regen_v6/media"
 DIRS = dict(auto="out/final", review="out/final_review")
 
 
@@ -65,7 +66,7 @@ def run(tiers, slug=None, only=None):
             if js.name.endswith("_ctx20.json") or (slug and slug not in js.parent.name):
                 continue
             j = json.load(open(js, encoding="utf8"))
-            if not j.get("ok") or j.get("rule") != "v5-bounds":
+            if not j.get("ok") or j.get("rule") != RULE:
                 continue
             d = js.parent.name.split("_")
             sl = "_".join(d[2:])                              # out/final/<yymmdd>_<이름>_<슬러그>

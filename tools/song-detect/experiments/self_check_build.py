@@ -1,12 +1,12 @@
-"""자체 시청 검수 결과 조립: 직접 본 판정(data/review/blind11/verdicts.json) + 오디오 진단(cache/regen/media/diag.json) + 사용자 메모(blind9 labels.json, 곡 구간이 겹치는 행)
--> data/review/blind11/self_check.json, 요약 출력. 판정은 사람이 아니라 내가 프레임/스펙트로그램(experiments/self_check_media.py 그림)을 Read 로 보고 적은 것이다(귀로 듣지는 못함).
+"""자체 시청 검수 결과 조립: 직접 본 판정(data/review/blind12/verdicts.json) + 오디오 진단(cache/regen_v6/media/diag.json) + 사용자 메모(blind9 labels.json, 곡 구간이 겹치는 행)
+-> data/review/blind12/self_check.json, 요약 출력. 판정은 사람이 아니라 내가 프레임/스펙트로그램(experiments/self_check_media.py 그림)을 Read 로 보고 적은 것이다(귀로 듣지는 못함).
 verdicts.json: {클립id: {"screen": live|watch|idle|other, "start": ok|preroll|breath|speech|late|..., "end": ok|early|late|speech|..., "why": 근거 1줄, "conf": high|mid|low, "low_why": 사유(low 일 때)}}
 사용: python experiments/self_check_build.py [--list]   (--list: 아직 판정이 없는 클립 id)"""
 import json, sys
 from collections import Counter
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
-BD = ROOT / "data/review/blind11"
+BD = ROOT / "data/review/blind12"
 SCREENS, STARTS, ENDS, CONFS = {"live", "watch", "idle", "other"}, {"ok", "preroll", "breath", "speech", "late", "soundcheck", "mid"}, {"ok", "early", "late", "speech", "mr", "mid"}, {"high", "mid", "low"}
 
 
@@ -17,7 +17,7 @@ def memo_rows(slug_dir, s, e):
 
 
 def main():
-    D = json.load(open(ROOT / "cache/regen/media/diag.json", encoding="utf8"))
+    D = json.load(open(ROOT / "cache/regen_v6/media/diag.json", encoding="utf8"))
     V = json.load(open(BD / "verdicts.json", encoding="utf8")) if (BD / "verdicts.json").exists() else {}
     if "--list" in sys.argv:
         print([k for k in D if k not in V]); return

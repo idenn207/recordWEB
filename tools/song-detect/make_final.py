@@ -107,7 +107,7 @@ def snap_quiet(pcm, a, t, ref):
     return (float(q[np.abs(q - t).argmin()]), True) if len(q) else (t, False)
 
 
-RULE = "v5-bounds"     # 규칙 버전: 멱등 키(json.rule 이 다르면 다시 만든다). v5 = v4 + 끝 규칙 E1b/E3 코다/TAIL 가드(말 직전 컷). v3 = 음성 없음 폴백 + 출력 리미터, v4 = 원본 음량 유지(리미터 기본 꺼짐) + 종료 컷을 곡 끝 +1.0초 이상, 페이드는 곡 끝 이후에만
+RULE = "v6-integrate"     # 규칙 버전: 멱등 키(json.rule 이 다르면 다시 만든다). v6 = v5 + 통합(E1B_LOUD 10, black_max 0.47, S3 시작 제안(auto 제외), n_visual 화면 신호). v5 = v4 + 끝 규칙 E1b/E3 코다/TAIL 가드(말 직전 컷). v3 = 음성 없음 폴백 + 출력 리미터, v4 = 원본 음량 유지(리미터 기본 꺼짐) + 종료 컷을 곡 끝 +1.0초 이상, 페이드는 곡 끝 이후에만
 PAD_WIN, PAD_MIN, PAD_EDGE = 2.0, 0.3, 0.05      # 여유 탐색 창(초), 이보다 짧은 공백은 여유 없음, 공백 시작 뒤 앞소리 꼬리 제외(초)
 CODE = [("새 채널", "NEW"), ("정지 화면", "IDLE"), ("장면 멀지만", "FAR"), ("장면 애매", "AMB"), ("짧음", "SHORT"), ("김", "LONG"), ("장면 거리를 못", "NOSCENE"), ("피아노", "PIANO"), ("승인 라이브지만", "BD")]
 
@@ -299,7 +299,7 @@ def selftest():
     i, q = xcorr(x[SR * 20:SR * 28], x)
     assert i == SR * 20 and q > 50
     assert hms6(3725.4) == "010205"
-    assert FADE >= TAIL >= 1.0 and RULE == "v5-bounds"
+    assert FADE >= TAIL >= 1.0 and RULE == "v6-integrate"
     sr, pcm = SR, np.full(SR * 20, 3000, np.int16)            # 0~20초 일정한 소리(곡 중앙값 수준), 곡 끝 10초
     a = np.zeros((40, 3), np.float32)
     assert 12.5 < tail_cut(pcm, a, -20.0, 10.0, 10.0) <= 10.0 + TAIL_EXT       # 말 없음, 컷에서도 큰 소리가 이어짐: 상한 곡 끝 +TAIL_EXT 까지 연장

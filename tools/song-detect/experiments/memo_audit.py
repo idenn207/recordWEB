@@ -327,7 +327,7 @@ def selftest():
     s = summarize(ev)
     assert s["vanished"] == 0 and s["ok_pass"] == s["ok_n"] > 0, s
     cur = summarize(evaluate(exp, load_src("out/final,out/final_review", exp)))
-    assert (cur["manual_agree"], cur["manual_n"]) == (11, 13), cur      # 자동 asym 판정과 수동 감사 13건의 일치. 26절 P2 이후 #20, #26 끝이 수동(실패)에서 통과로 바뀌어 11 (의도한 개선)
+    assert (cur["manual_agree"], cur["manual_n"]) == (9, 13), cur      # 자동 asym 판정과 수동 감사 13건의 일치. 26절 P2 이후 #20, #26 끝이 수동(실패)에서 통과로 바뀌어 11, 통합(S3)으로 #44, #54 시작이 통과로 바뀌어 9 (의도한 개선, out/final* 재생성 v6 기준)
     assert evaluate(exp, [])["vanished"] == [g["gid"] for g in exp["groups"] if g["lab"] != "N"]      # N 은 사라지는 것이 정상
     assert flat({"a": {"b": 1}, "c": 2}) == {"c": 2, "a.b": 1}
     print("selftest ok")
