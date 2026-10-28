@@ -24,7 +24,7 @@ def wdata(vid):
         _W[vid] = (pcm_of(w), np.load(cache_of(w, ".scores.npy")), snap.voc_of(w))
     return _W[vid]
 
-def calc(vid, rs, re_, off=frozenset(), tail=True):
+def calc(vid, rs, re_, off=frozenset(), tail=True, use_alt=False):
     pcm, a, voc = wdata(vid)
     undo = patched(set(off))
     try:
@@ -32,15 +32,17 @@ def calc(vid, rs, re_, off=frozenset(), tail=True):
     finally:
         undo()
     ref = float(np.median(rms_db(pcm, g["start"], g["end"])[1]))
-    s, _ = make_final.snap_quiet(pcm, a, g["start"], ref)
+    gs = g["alt_start"] if use_alt and g.get("alt_start") else g["start"]       # make_final 과 같이 S3 제안은 auto 가 아닌 곡에만(호출자가 use_alt 로 정한다)
+    s, _ = make_final.snap_quiet(pcm, a, gs, ref)
     e, _ = make_final.snap_quiet(pcm, a, g["end"], ref)
     cs, lead = make_final.lead_pad(pcm, a, ref, s)
     ce, trail = make_final.trail_pad(pcm, a, ref, e)
     st = list(g.get("stages") or [])                    # make_final.make 와 같은 순서로 규칙 이동 기록(refine -> 컷)
-    for rule, edge, b, af in (("snap_quiet", "start", g["start"], s), ("snap_quiet", "end", g["end"], e), ("lead_pad", "start", s, cs), ("trail_pad", "end", e, ce)):
+    snap.mv(st, "S3", "start", g["start"], gs)
+    for rule, edge, b, af in (("snap_quiet", "start", gs, s), ("snap_quiet", "end", g["end"], e), ("lead_pad", "start", s, cs), ("trail_pad", "end", e, ce)):
         snap.mv(st, rule, edge, b, af)
     if tail: ce = snap.mv(st, "tail", "end", ce, make_final.tail_cut(pcm, a, ref, e, ce))
-    return dict(song_s=s, song_e=e, clip_s=cs, clip_e=ce, snap_why=g.get("why_snap"), fix_s=g["start"], fix_e=g["end"], stages=st)
+    return dict(song_s=s, song_e=e, clip_s=cs, clip_e=ce, snap_why=g.get("why_snap"), fix_s=g["start"], fix_e=g["end"], alt_s=g.get("alt_start"), stages=st)
 
 def kept(vid):
     """out/<vid>/2_refine.json 의 keep 구간(원본 순서)."""

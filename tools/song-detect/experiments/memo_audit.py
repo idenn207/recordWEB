@@ -116,13 +116,18 @@ def build():
 
 def load_src(spec, exp):
     """소스 -> [{slug, s, e}]. spec = 폴더/json 쉼표 목록(blind9_bounds.load_src) 또는 engine."""
-    if spec == "engine":
+    if spec in ("engine", "engine_rev"):
         import audit_engine as E
         slug_of = {g["vno"]: g["slug"] for g in exp["groups"]}
         S = []
         for vno, slug in slug_of.items():
             for g in E.kept(vno):
                 o = E.calc(vno, g["start"], g["end"])
+                if spec == "engine_rev" and o["alt_s"] is not None:          # S3 시작 제안은 auto 가 아닌 곡에만(make_final 과 같은 정책)
+                    import golden_gate as G
+                    c = G.current(vno, g["start"], g["end"])
+                    if c and c["tier"] != "auto":
+                        o = E.calc(vno, g["start"], g["end"], use_alt=True)
                 S.append(dict(slug=slug, s=o["song_s"], e=o["song_e"], rule="engine"))
             E._W.clear(); gc.collect()
         return S
@@ -276,17 +281,17 @@ def run(argv):
     save = "--save" in argv
     a = [x for x in argv if not x.startswith("--")]
     before, after = (a + [None, None])[:2] if a else (None, None)
-    specs = {"stale_v3": before or "out/stale_v3", "current": after or "out/final,out/final_review", "engine": "engine"}
+    specs = {"stale_v3": before or "out/stale_v3", "current": after or "out/final,out/final_review", "engine": "engine", "engine_rev": "engine_rev"}
     evs, res = {}, dict(sources=specs, summary={})
     for lab, sp in specs.items():
         evs[lab] = evaluate(exp, load_src(sp, exp))
         res["summary"][lab] = report(lab, evs[lab])
-    print("\n숫자 정답별 오차(after - 정답, 초): stale_v3 -> current -> engine")
+    print("\n숫자 정답별 오차(after - 정답, 초): stale_v3 -> current -> engine -> engine_rev(S3 제안을 auto 가 아닌 곡에 적용)")
     for it in [i for i in evs["current"]["items"] if i["kind"] == "num"]:
         g = next(g for g in exp["groups"] if g["gid"] == it["gid"])
         f = lambda lab: next((f"{i['err']:+7.1f}" for i in evs[lab]["items"] if i["gid"] == it["gid"] and i["side"] == it["side"]), "   없음")
-        print(f"  #{it['gid']:<3d}{'(' + str(it['n']) + '행)':7s}{it['side']:6s}{it['src']:10s}{'N ' if it['lab'] == 'N' else '  '}{f('stale_v3')} -> {f('current')} -> {f('engine')}  {g['sides'][it['side']]['note']}")
-    for lab in ("current", "engine"):
+        print(f"  #{it['gid']:<3d}{'(' + str(it['n']) + '행)':7s}{it['side']:6s}{it['src']:10s}{'N ' if it['lab'] == 'N' else '  '}{f('stale_v3')} -> {f('current')} -> {f('engine')} -> {f('engine_rev')}  {g['sides'][it['side']]['note']}")
+    for lab in ("current", "engine", "engine_rev"):
         bad = [i for i in evs[lab]["items"] if i["kind"] in ("ok", "dir") and i["lab"] != "N" and not i["pass_"]]
         print(f"[{lab}] 실패 {len(bad)}: " + " ".join(f"#{i['gid']}{i['side'][0]}{i['kind']}{i['move']:+.1f}" for i in bad))
     drift = [abs(i["move"] - j["move"]) for i in evs["current"]["items"] for j in evs["engine"]["items"] if i["gid"] == j["gid"] and i["side"] == j["side"]]
