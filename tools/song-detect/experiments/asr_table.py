@@ -9,9 +9,9 @@ import asr_bounds as B, asr_eval as A
 
 ap = argparse.ArgumentParser(); ap.add_argument("tags", nargs="+"); ap.add_argument("--k", type=int, default=3); ap.add_argument("--W", type=float, default=20); ap.add_argument("--gap", type=float, default=8)
 ap.add_argument("--sing", type=float, default=B.P["sing"]); ap.add_argument("--music", type=float, default=B.P["music"]); ap.add_argument("--cr", type=float, default=B.P["cr"]); ap.add_argument("--alp", type=float, default=B.P["alp"])
-ap.add_argument("--nsp", type=float, default=B.P["nsp"])
+ap.add_argument("--nsp", type=float, default=B.P["nsp"]); ap.add_argument("--chunk", type=int, default=1); ap.add_argument("--uniq", type=float, default=0.0); ap.add_argument("--pmean", type=float, default=0.0); ap.add_argument("--maxw", type=float, default=99.0)
 a = ap.parse_args()
-p = dict(B.P, sing=a.sing, music=a.music, cr=a.cr, alp=a.alp, nsp=a.nsp)
+p = dict(B.P, sing=a.sing, music=a.music, cr=a.cr, alp=a.alp, nsp=a.nsp, chunk=a.chunk, uniq=a.uniq, pmean=a.pmean, maxw=a.maxw)
 Ds = {t: A.prep(t, p) for t in a.tags}
 common = set.intersection(*[set(D) for D in Ds.values()])
 print(f"공통 곡 {len(common)}개 (p={ {k: p[k] for k in ('cr','alp','nsp','sing','music')} }, k={a.k} W={a.W} gap={a.gap})")
@@ -21,7 +21,7 @@ for t, D in Ds.items():
     m = json.load(open(Path(__file__).resolve().parent.parent / "cache/proto_asr/tx" / t / "meta.json"))
     nw = sum(len(v[1]) for v in D.values()); mins = sum((v[0]["base"][1] - v[0]["base"][0]) for v in D.values()) / 60
     segs = [s for v in D.values() for s in v[2]["segs"]]
-    hall = 100 * np.mean([s["cr"] > p["cr"] or s["alp"] < p["alp"] or s["nsp"] > p["nsp"] for s in segs]) if segs else 0
+    hall = 100 * np.mean([s["cr"] > p["cr"] or s["alp"] < p["alp"] or s["nsp"] > p["nsp"] for s in segs]) if segs else 0       # 열 의미: chunk 필터 기준 의심 세그먼트 %
     R = A.verifier(D, a.W, a.gap, a.k)
     S, E = A.offsets(D, 30)
     f = lambda x: f"{np.median(x):6.1f}[{np.percentile(x, 25):.0f},{np.percentile(x, 75):.0f}]" if len(x) else "-"

@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 import numpy as np
 
 HOP = 0.5
-P = dict(cr=2.4, nsp=0.95, alp=-1.6, rep=3, sing=0.15, music=0.3, pmin=0.0)    # 기본 필터 파라미터(실험으로 바꿈)
+P = dict(cr=2.4, nsp=0.95, alp=-1.6, rep=3, sing=0.15, music=0.3, pmin=0.0, chunk=1, uniq=0.0, pmean=0.0, maxw=99.0)    # 기본 필터 파라미터(실험으로 바꿈)
 
 
 def scores(vno):
@@ -32,7 +32,10 @@ def words(d, a, p=P):
     segs = d["segs"]
     bad = [False] * len(segs)
     for i, s in enumerate(segs):
-        bad[i] = s["cr"] > p["cr"] or s["nsp"] > p["nsp"] or s["alp"] < p["alp"]
+        bad[i] = bool(p["chunk"]) and (s["cr"] > p["cr"] or s["nsp"] > p["nsp"] or s["alp"] < p["alp"])
+        tk = norm(s["text"]).split() if False else s["text"].split()
+        if p["uniq"] and len(tk) >= 6 and len(set(tk)) / len(tk) < p["uniq"]:      # 세그먼트 단위 반복 환각(chunk 값은 30초 덩어리 공통이라 진짜 가사까지 버린다)
+            bad[i] = True
     # 같은 문장이 rep 번 넘게 연속 반복하면 환각으로 본다
     run, last = 0, None
     for i, s in enumerate(segs):
@@ -42,10 +45,15 @@ def words(d, a, p=P):
         if run > p["rep"]:
             for j in range(i - run + 1, i + 1):
                 bad[j] = True
+    if p["pmean"]:
+        for i, sg in enumerate(segs):
+            pw = [w[3] for w in d["words"] if sg["s"] - .01 <= w[0] <= sg["e"] + .01]
+            if pw and sum(pw) / len(pw) < p["pmean"]:
+                bad[i] = True
     out = []
     for w in d["words"]:
         si = next((i for i, s in enumerate(segs) if s["s"] - 0.01 <= w[0] <= s["e"] + 0.01), None)
-        if si is None or bad[si] or w[3] < p["pmin"]:
+        if si is None or bad[si] or w[3] < p["pmin"] or w[1] - w[0] > p["maxw"]:
             continue
         k0, k1 = int(w[0] / HOP), max(int(w[0] / HOP) + 1, int(w[1] / HOP) + 1)
         f = a[k0:k1]
