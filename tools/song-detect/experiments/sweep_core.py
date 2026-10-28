@@ -110,7 +110,12 @@ def _wk_run(args):
             for rs, re_, fs, fe in segs:
                 s2, e2 = rs + (bias[0] if fs else 0.0), re_ + (bias[1] if fe else 0.0)
                 c = E.calc(vid, s2, e2)
-                res[(rs, re_)] = dict(song_s=c["song_s"], song_e=c["song_e"], clip_s=c["clip_s"], clip_e=c["clip_e"], fix_s=c["fix_s"], fix_e=c["fix_e"])
+                pcm, a, _ = E.wdata(vid)
+                ref = float(np.median(snap.rms_db(pcm, c["song_s"], c["song_e"])[1]))
+                ts, db = snap.rms_db(pcm, c["song_e"], max(c["clip_e"], c["song_e"] + 0.2))
+                ix = np.clip(np.round((ts - 0.4875) / 0.5).astype(int), 0, len(a) - 1)
+                tsp = int(((a[ix, 1] > 0.15) & (db > ref - 25)).sum())                 # 곡 끝~컷 사이에 들리는 말소리 프레임(0.1초) 수
+                res[(rs, re_)] = dict(song_s=c["song_s"], song_e=c["song_e"], clip_s=c["clip_s"], clip_e=c["clip_e"], fix_s=c["fix_s"], fix_e=c["fix_e"], tsp=tsp)
             out[vid] = res
             if len(E._W) > 12:
                 E._W.clear(); gc.collect()
@@ -221,6 +226,9 @@ class Evaluator:
                 self.baseR = R
             mv = [(v, k) for v in R for k, c in R[v].items() if v in self.baseR and k in self.baseR[v] and max(abs(c["song_s"] - self.baseR[v][k]["song_s"]), abs(c["song_e"] - self.baseR[v][k]["song_e"])) > 2]
             out["moved2"], out["n_wide"] = len(mv), sum(len(x) for x in R.values())
+            out["movedc"] = sum(1 for v in R for k, c in R[v].items() if v in self.baseR and k in self.baseR[v] and max(abs(c["clip_s"] - self.baseR[v][k]["clip_s"]), abs(c["clip_e"] - self.baseR[v][k]["clip_e"])) > 0.5)
+            out["tail_sp"] = sum(c["tsp"] for v in R for c in R[v].values())
+            out["tail_cut"] = round(float(np.mean([c["clip_e"] - c["song_e"] for v in R for c in R[v].values()])), 3)
         out["_R"] = R
         out["_cur"] = cur
         return out
