@@ -11,7 +11,9 @@ from paths import cache_of
 
 HOP, SR, FR = 0.5, 16000, 0.1            # 점수 간격 / 표본률 / 에너지 프레임(초)
 BACK, FWD, MARGIN = 8.0, 15.0, 2.0       # 끝 탐색 범위(앞/뒤), 무음 스냅 여유(초)
-LOW, RUN = 0.25, 3                       # Music 절벽: 점수<0.25 가 RUN 개(1.5초) 연속
+LOW, RUN = 0.2305, 3                     # Music 절벽: 점수<LOW 가 RUN 개(1.5초) 연속. LOW 는 sweep 의 양자화 재중심화 값(원래 0.25, 결과 동일: 아래 QLEVEL 주석)
+# QLEVEL: YAMNet int8 출력이라 점수(Speech/Music)는 전 방송 공통 32개 값만 갖는다. 프레임 점수와 직접 비교하는 임계 LOW MU SPEECH E1_MU E1_SP E1B_MU E1B_SP 는 (아래 레벨, 위 레벨] 안이면 결과가 같으므로
+# 구간 중앙값으로 둔다(원래 0.25 0.5 0.7 0.85 0.2 0.5 0.3: 0.5/0.85 는 레벨 가장자리라 +0.5% 만 올려도 승인 곡 7개가 이동). 840구간 경계 변화 0, 근거 experiments/sweep_levels.py, experiments_log/sweep.md 9절
 
 
 def pcm_of(wav):
@@ -44,7 +46,7 @@ def quiet(pcm, a, ref_db, t0, t1):
     return ts[(db < ref_db - 25) & (sp < 0.3)]
 
 
-LOOK, GAP, HOLE, DROP, SPEECH, MU, LEAD = 10.0, 0.6, 0.5, 20, 0.7, 0.5, 1.0   # 탐색 범위(blind6 최대 늦음 10초), 끊김 최소 길이, 끊김 사이 메움(초), 무음 깊이(dB), 말 판정, 무음일 때 Music 상한, 여유(초)
+LOOK, GAP, HOLE, DROP, SPEECH, MU, LEAD = 10.0, 0.6, 0.5, 20, 0.7031, 0.457, 1.0   # 탐색 범위(blind6 최대 늦음 10초), 끊김 최소 길이, 끊김 사이 메움(초), 무음 깊이(dB), 말 판정, 무음일 때 Music 상한, 여유(초)
 
 
 EXT_MU = 0.25   # 늘린 구간의 Singing+Music 평균 하한(blind6 정상 사례 0.30~0.41, 비음악 0.00~0.22 사례를 가르는 값, 표본 약 14개 근거)
@@ -118,7 +120,7 @@ def _bridge(pcm, a, ref, c):
     return c if last is None else max(c, last * HOP + B_TAIL)
 
 
-E1_MU, E1_SP, E1_GAP, E1_MIN, E1_CAP = 0.85, 0.2, 2.0, 4.0, 90.0   # 끝 연장: 끝 프레임이 이 Music/Speech 조건이면 gap 이하 틈으로 이어지는 끝까지, 최소 길이, 90초 안에 안 끝나면 믿지 않음(BGM)
+E1_MU, E1_SP, E1_GAP, E1_MIN, E1_CAP = 0.8262, 0.2305, 2.0, 4.0, 90.0   # 끝 연장: 끝 프레임이 이 Music/Speech 조건이면 gap 이하 틈으로 이어지는 끝까지, 최소 길이, 90초 안에 안 끝나면 믿지 않음(BGM)
 
 
 def run_len(a, e):
@@ -140,7 +142,7 @@ def run_len(a, e):
     return 0.0
 
 
-E1B_MU, E1B_SP, E1B_GAP, E1B_CAP, E1B_DROP, E1B_LOUD, E1B_GUARD, E1B_VOC = 0.5, 0.3, 5.0, 120.0, 15.0, 12.0, 1.0, 0.5   # 끝 연장 E1b: 느슨한 Music/Speech, 틈, 연장 상한(초), 직후 감쇠 확정(dB), 조용한 아웃트로 하한(곡 중앙값 대비 -dB), 자연스러운 끝 가드(dB)
+E1B_MU, E1B_SP, E1B_GAP, E1B_CAP, E1B_DROP, E1B_LOUD, E1B_GUARD, E1B_VOC = 0.457, 0.2969, 5.0, 120.0, 15.0, 10.0, 1.0, 0.5   # 끝 연장 E1b: 느슨한 Music/Speech, 틈, 연장 상한(초), 직후 감쇠 확정(dB), 조용한 아웃트로 하한(곡 중앙값 대비 -dB), 자연스러운 끝 가드(dB)
 
 
 def env_end(pcm, a, ref, s, e, voc=None):
@@ -148,6 +150,7 @@ def env_end(pcm, a, ref, s, e, voc=None):
     2단계(1단계가 2초 이상 움직였을 때만): 곡 소리(dB >= 곡 중앙값-12 & Speech<0.3)가 3초 넘게 끊기지 않는 동안 더 따라감. 채택: 직후 3초가 곡 중앙값-1dB 이상으로 시끄러우면(자연스러운 끝이 아님)
     건드리지 않고, 최종 지점 직후 1~3초 중앙값이 곡 중앙값-15dB 보다 낮거나(직후 3초 Speech 평균>=0.5 이고 -6dB 보다 낮은 때: 소리가 끊기고 멘트) 일 때만 연장. 말이 MR 위에 얹혀 소리가 그대로면(#70/#71 류) 연장 안 함.
     보컬 가드: 원래 끝 앞 30초의 vocal 비율(detect 5초 창) 평균이 E1B_VOC 이상일 때만 = 노래 도중에 잘린 끝만(곡이 끝나고 BGM/MR 이 이어지는 경우 제외, #15086957 승인 곡). vocal.json 이 없으면 쉼. 곡 6분 초과 불가.
+    E1B_LOUD 12 -> 10: 소리 연속 판정 12 -> 10 dB, #20 끝 +2.4 -> 0.0(hit@0.5 5 -> 6), 전 방송 840구간 중 1곡만 이동, 안전 구간 6~13.2(golden 이탈은 15 부터). 정답 1건 근거(shortcut).
     shortcut: 임계값은 B 3곡(#18 #20 #25) 근거, 감쇠 아웃트로 곡이 아니라 BGM 이 이어지는 N 에 붙을 수 있어 연장 상한/가드는 regress_snap 으로만 점검했다."""
     if float(np.mean(rms_db(pcm, e, e + 3)[1])) < ref - E1B_GUARD:
         return e                                         # 끝 직후가 이미 곡 소리보다 작으면 자연스러운 끝(감쇠/절벽)
