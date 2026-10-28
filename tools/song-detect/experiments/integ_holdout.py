@@ -83,7 +83,9 @@ def evaluate():
     import n_visual
     V = pd.DataFrame(json.load(open(TAB, encoding="utf8")))
     V = pd.concat([V, golden_rows()], ignore_index=True)           # hold-out 임계의 학습 라이브에 golden(배포 경로 점수)도 넣는다: 같은 스트리머 곡은 veto() 가 그룹 제외로 뺀다
-    sig = LR.load(); sig["streamer"] = sig.name
+    sig = LR.with_golden(LR.load())                                   # 라이브 풀 = 신호 표 88 + golden 라이브(표에 없는 것) = 136
+    G = golden_rows().set_index("key").name                          # golden 행의 그룹은 방송이 아니라 스트리머로(스트리머 hold-out 에서 같은 스트리머가 학습에 섞이지 않게)
+    sig["streamer"] = [G.get(k, n) for k, n in zip(sig.key, sig.name)]
     D, _ = LR.holdout(sig, "streamer", "D", 0.1)
     sig["D"] = D
     thr = n_visual.cal()["thr"]
