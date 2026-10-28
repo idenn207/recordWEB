@@ -162,3 +162,98 @@ n_visual 이 더하는 손실은 모든 조건에서 0. 규칙 D 자체의 손�
 1. 경계 변경(E1B_LOUD, S3)은 RULE("v5-bounds")을 올리지 않아 기존 out/final* 클립에는 아직 반영되지 않았다. 반영하려면 RULE 상향 + `python datasets/reroute_nas.py --manifest`(호스트 venv python 으로: 화면 신호까지) + `python datasets/final_nas.py auto review`(NAS 로그인 필요) 순서다. TAIL/종료 컷 연장의 청취 확인(27절)과 함께 결정할 것.
 2. 화면 신호를 쓰려면 `pipeline.py`/`reroute_nas.py` 를 torch+open_clip 이 있는 python 으로 실행해야 한다. 아니면 stderr 에 "n_visual 건너뜀" 한 줄만 남고 옛 동작이다.
 3. 한 번에 점검: `python harness/check.py`(약 12초, 종료코드 0/1/2), 승인된 변경 뒤 `--accept`.
+
+## 8. 61방송 재생성 (RULE v5-bounds -> v6-integrate, 2026-10-29)
+
+통합 코드(proto/sd-integrate)로 NAS 61방송 전체를 다시 처리했다. 청취는 못 했고 모든 판정은 프레임/스펙트로그램(Read)이다.
+
+### 8.1 한 일, 예상 대비 실제 시간
+| 단계 | 예상 | 실제 | 방법 |
+|---|---|---|---|
+| 백업 | - | 1분 | `out/<방송>/{3_final.json,4_scene.json,cards}` 를 `out/stale_v5/state/` 로 복사, 카드 요약은 `cache/regen_v6/before_cards.json` |
+| RULE 상향 | - | - | `make_final.RULE` "v5-bounds" -> "v6-integrate", selftest assert 도 같이. 이전 클립은 `out/stale_v5/{final,final_review}` 로 이동(105개 mp4, 삭제 없음) |
+| 경계/장면/화면/등급 | 30분(후보 191 x 8초 + vis) | 28분(scene 1615초 = NAS 프레임 + vis, final 5.8초, sig 5.4초, route 6.0초) | `SONG_NOCLIP=1 C:/_tools/wt/venv/Scripts/python.exe datasets/reroute_nas.py --manifest` (호스트 venv: vis 까지). `--final` 은 필요 없다: 매니페스트 기록이 없어 final 단계부터 61방송 전부 stale 이었다 |
+| 완성본 클립 | 25분(NAS 지연 위주라 동시 실행) | 27분(08:04~08:31) | `SHARD=k/n python datasets/final_nas.py auto|review` 4 프로세스(auto 3 + review 1, 새 `SHARD` 환경변수). GPU 사용률 38% 안팎 |
+- 예상의 1.5배를 넘은 단계는 없어 방법을 바꾸지 않았다. NAS 는 시작 전 세션 확인(200)이었고 401 은 없었다. 로그인 시도 없음.
+- 단계마다 manifest 가 `out/manifest.json` 을 남기므로 다음 `reroute --manifest` 는 바뀐 후보만 NAS 에서 다시 읽는다.
+
+### 8.2 게이트 전/후
+| 항목 | 전(v5-bounds 산출물) | 후(v6-integrate) |
+|---|---|---|
+| golden_gate 이탈(화이트리스트) | 0 (6) | 0 (6) |
+| 승인(auto 42곡) 클립 곡 시작/끝 이동 (`regen_clips_diff.py`) | - | **0**. 컷만 1곡: toa 10-24 #08 끝 컷 +0.30초(27절 종료 컷 연장 미반영분), 클립 길이 변화 최대 0.30초 |
+| 등급 수 auto / review / drop | 42 / 21 / 128 | 42 / 21 / 128 (등급 이동 0). 단 review 1곡이 weak 로 바뀌어 클립 63 -> 62 |
+| weak 후보 | 60 | 72 (+12: drop 11 + review 1, vis 1.07~1.58 > 임계 1.026) |
+| memo_audit(실제 클립) hit@0.5/3/10 | 5 / 9 / 11 | **8 / 11 / 12** (실제 클립 = engine_rev 예측과 모든 지표 동일) |
+| 중앙 오차, 방향, 길이>5초, 경계 좋음, 곡 사라짐 | 1.9초, 13/27, 2, 67/67, 0 | 0.35초, 16/27, 1, 67/67, 0 |
+| memo_audit 수동 감사 일치 | 11/13 | 9/13 (#44, #54 시작이 수동 판정 실패에서 통과로: 의도한 개선, selftest 단언도 9 로) |
+| 3_final 4538구간 start/end 변화 | - | 1(rize 10-04 카드 #23 끝 -1.5초), 새 키 alt_start 10 |
+| logo_route(check.py) | 14/55, 라이브 걸림 0/49 | 14/55, 0/49 (배포 규칙 표본 내, 규칙은 안 바뀜) |
+| selftest / test_route | 11/11 / ok | 11/11 / ok |
+| 클립 ok | 63/63 | 62/62: dur_err <= 0.008초, A/V 시작 차 0, 프레임 수 일치, 1920x1080, 리미터 0, nvenc, auto ctx20 42개 |
+| 원본 음량 유지 (`experiments/regen_loudness.py`) | -0.07dB(v5, 같은 도구로 측정) | 클립-원본 rms 차이 평균 -0.07dB, 최소 -0.22, 최대 -0.01, 허용 1.0dB 초과 0 |
+| vis (등급 안전) | - | auto 42곡 최대 0.59, review(weak 제외) 최대 0.34, 임계 1.026 |
+
+### 8.3 바뀐 곡 (파일 기준 `regen_clips_diff.py`, 카드 기준 `regen_compare.py`)
+- 클립 경계가 바뀐 곡 6개 (모두 review 5 + auto 컷 1):
+  - rize 10-04 #23(메모 #20): 곡 끝 -2.40초(E1B_LOUD 10), 클립 -2.65초. memo #20 끝 정답 오차 +2.4 -> 0.0.
+  - nana 10-16 #13(#44) 시작 -25.70초, #19(#50) -13.10초, #21(#54) -6.80초, mary 10-18 #03(#65) -16.30초 (S3 제안 적용, auto 가 아닌 곡). #13 은 재생목록 정답 20079.15 에 0.1초, #21 은 오디오 근거 23283.2 에 0.1초 차.
+  - toa 10-24 #08(auto): 끝 컷 +0.30초만(곡 경계 그대로).
+- 클립이 안 만들어진 곡 1개: rang 10-21 #02(review -> weak). 프레임을 다시 보니 3D 게임 화면(구르는 공)과 애니 그림 카드뿐이고 본인 모델이 없다. N 이 맞다(과거 클립은 `out/stale_v5/final_review/` 에 있다).
+- 카드만 바뀐 것: alt_start(S3 제안) 새 키 10개(auto 1, review 4, drop 5), weak 12개. 등급은 한 개도 안 바뀌었다.
+
+### 8.4 자체 시청 검수 (`data/review/blind12/self_check.json`, 62클립 전부)
+- 방법: `experiments/self_check_media.py`(클립마다 프레임 3장 + 시작/끝 스펙트로그램/0.25초 rms/점수, `cache/regen_v6/media/*.png`)를 62장 모두 Read 로 보고 `verdicts.json` 에 적은 뒤 `self_check_build.py` 가 메모(blind9 labels)와 묶었다. 귀로는 듣지 못했다.
+- 화면: live 62(본인 모델 또는 4인 싱크룸 화면). 시작: ok 52, late 7, speech 3. 끝: ok 41, speech 9, early 7, late 3, mr 2. 확신도 high 21, mid 31, low 10. 메모가 있는 49클립 전부에 메모 대비 결과(memo_vs)를 적었다.
+- 이전(blind11, 63클립)과 달라진 판정 10개. 클립이 바뀌어서 달라진 것: 시작 late -> ok 4곡(S3: nana #13, #19, #21, mary #03, 단 #19, #03 은 확신 low). blind11 검수 뒤에 이미 종료 컷 연장으로 다시 만들어진 클립(이번 재생성의 전 상태 stale_v5)이라 판정이 달라진 것: rang 10-17 #2 끝 early -> ok(마지막 화음과 글리산도가 감쇠하며 끝남, 메모 "fade out 1초 더"와 부합), toa 10-24 #12 끝 early -> mr(연장 +1.3초로 일부 해소, 반주가 남은 채 컷). 클립은 같은데 다시 보고 판정을 바꾼 것: nana 10-06 #09, #10 끝 ok -> speech(곡 끝 앞뒤 말소리 점수가 보임), mary 10-23 #01 시작 ok -> speech(컷이 짧고 큰 잡음 위, 8.5 참조), nana 10-16 #18 확신 high -> mid.
+- 메모 있는 곡의 결과: 메모가 지적한 시작/끝 중 S3 로 해소된 것은 #44(Mama Lisa 전주), #54(전주 MR 5초)이고 #50, #65 는 방향만 부합(양과 허밍 여부는 unverifiable). 종료 컷 연장으로 부합 쪽으로 간 것은 rang 10-17 #2. 그대로 남은 것은 시작 late(rize 10-04 #23 +42.4초 P5, toa 10-17 #3, toa 10-24 #3, #8, #14, nana 10-16 #14), 끝 early/mr(rang 10-17 #3, toa 10-24 #4, #5, #9, #12, #14, hiyori 10-18 #3).
+- 이슈가 있는 클립(시작/끝이 ok 가 아니거나 확신 low) 28개:
+
+| 클립 | 시작/끝 | 확신 | 메모 대비 |
+|---|---|---|---|
+| auto_261006_nana1_06 | ok/late | mid |  |
+| auto_261006_nana1_09 | ok/speech (이전 ok/ok) | mid |  |
+| auto_261006_nana1_10 | ok/speech (이전 ok/ok) | low |  |
+| auto_261010_nana2_01 | ok/speech | mid | memo L '후렴부터 모른다고 MR 끔, 완곡 안 함': 곡 끝이 MR 꺼진 뒤 1.4초 늦어 말이 포함됨(승인 경계라 변경 안 함) |
+| auto_261016_nana1_14 | late/ok | low | memo L 두 행 상반('경계도 좋음' / '전주 MR 과 들숨이 잘림'): 시작 late 쪽 부합, 미결 질문 3(#45 전주 포함 선호) |
+| auto_261016_nana1_16 | ok/speech | mid |  |
+| auto_261016_nana1_17 | speech/speech | low |  |
+| auto_261018_hiyori1_03 | ok/mr | mid | memo L '완곡했으나 종료경계가 MR 끝나기 전에 잘림, 마지막에 MR 과 함께 멘트': 부합(알려진 대가) |
+| auto_261021_mary1_01 | ok/speech | mid | memo L '경계도 좋음' 일치 |
+| auto_261024_toa3_05 | ok/early | low | memo L '종료 fade out 이 완곡 전에 나와 아쉬움': 부합 가능성(딥 뒤 소리 종류 불명) |
+| auto_261024_toa3_08 | late/late | mid | memo 두 행 상반(B '전주 MR 이 조금 잘림' / L '경계도 좋음'): 시작은 B 쪽과 부합 |
+| auto_261024_toa3_10 | ok/speech | mid | memo L '4명 라이브, 경계도 좋음' 일치 |
+| auto_261024_toa3_13 | ok/speech | mid | memo L '경계도 좋음' 일치 |
+| review_261004_rize1_21 | ok/ok | low | memo B '노래 완곡 안 됨, 1분 끊김': 끝은 +19.5초 해소, 1분 주장은 미확인(unresolved 18) |
+| review_261004_rize1_23 | late/ok | high | memo(#20): 시작 +42.4 미해결(P5), 끝 정답 11179.5 와 일치(오차 0.0) |
+| review_261006_nana1_02 | ok/ok | low | memo B '완곡 안 됨, 1분 끊김': 오디오상 끝은 25511 근처로 보이나 확인 못 함(재생목록 +82초와 어긋남, 미결 질문 1) |
+| review_261006_nana1_12 | speech/ok | mid | memo B '완곡 안 됨 종료': 끝 +99.5초 연장으로 해소(P2 오디오 근거 29331.5) |
+| review_261016_nana1_19 | ok/ok (이전 late/ok) | low | memo B '논브리스 오블리주 앞부분 조금 잘림': 방향 부합(13초 앞당김), 양은 귀로 확인 필요 |
+| review_261016_nana1_20 | ok/speech | mid | memo B '실제 시작 00:06 호흡, 1절 2절만 부르고 후렴에서 끝': 시작 해소로 보임, 끝에 말 2초 포함(메모와 같은 방향의 문제) |
+| review_261017_rang1_03 | ok/early | mid | memo B '종료가 완곡 전에 끝나서 잘림': 부합 가능성(귀로 확인 불가) |
+| review_261017_toa1_03 | late/early | high | memo B '시작경계가 조금 많이 잘림, 앞에 MR 이 더 있음': 부합(시작 약 1초 늦음) |
+| review_261018_mary1_03 | ok/early (이전 late/early) | low | memo B '앞 허밍 빠짐, 종료 완곡 전 끊김': 시작 방향 부합(16.4초 앞당김, 허밍 여부는 unverifiable), 끝은 그대로 early |
+| review_261023_mary1_01 | speech/late (이전 ok/late) | mid | memo B '완곡 종료 04:26, 뒤에 종료 경계가 조금 많이 남음': 부합(끝에 곡 아닌 소리 약 3초) |
+| review_261024_toa3_03 | late/ok | mid | memo B '시작부분 전주 MR 이 잘림': 부합 |
+| review_261024_toa3_04 | late/early | low | memo B '전주 MR 이 조금 잘림': 시작 부합 가능성, 끝은 tail 연장이 일부 보완 |
+| review_261024_toa3_09 | ok/early | low | memo B '완곡 전에 fade out, 뒤에 노래가 더 있을 가능성': 소리가 이어진다는 점은 부합(종류 불명) |
+| review_261024_toa3_12 | ok/mr (이전 ok/early) | mid | memo B '완곡은 했는데 MR 종료 반주가 남은 상태에서 잘림': 연장으로 일부 해소(+1.3초), 여전히 반주 도중 컷이라 부합 |
+| review_261024_toa3_14 | late/early | high | memo B '전주 MR 과 노래 부분이 많이 잘림': 부합(시작 앞 소리가 이어짐, 끝도 소리가 이어짐) |
+
+(전체 62클립의 시작/끝/근거/확신은 `data/review/blind12/self_check.json`. data/ 는 gitignore 라 위 표가 저장소에 남는 요약이다.)
+
+### 8.5 결함 점검과 규칙 수정 판단 (재생성 0/2회 사용)
+자체 검수에서 명백히 보인 결함은 한 건이다. 나머지(시작 late, 끝 early/mr/speech)는 메모와 부합하는 알려진 유형이고 점수만으로 일반 규칙이 서지 않는다(27절).
+- mary 10-23 #01(review): 클립이 -14 -> -7dB 의 짧은 큰 잡음(0.4초, 말 끝의 숨/웃음으로 보임) 한가운데서 시작한다. 원인: `make_final.lead_pad` 가 무음 공백(곡 중앙값-25dB 아래)이 없어 "음성 없음" 공백(Speech<0.3, Singing<0.3, 음량 제한 없음)으로 폴백했고, 그 공백(18744.1부터 1.0초)에 YAMNet 이 말/노래로 안 보는 큰 소리가 들어 있어 시작+0.05초에 컷이 놓였다.
+- 수정 후보 두 가지를 62클립에 대입해 보고(재생성 없이 컷 계산만) 둘 다 채택하지 않았다.
+  - (a) 음성 없음 공백에도 `음량 < 곡 중앙값` 제한: 시작 여유 6곡, 끝 여유 12곡의 계산 값이 바뀌고(최종 끝 컷은 tail_cut 이 따로 정함) 그중 승인 auto 가 시작 1곡(toa 10-24 #08, 이미 시작이 늦은 곡이 0.45초 더 늦어짐)과 끝 8곡이다. 시작이 늦은 review(toa 10-17 #3)는 1.4초 더 늦어져 악화. MR 카운트인이 이 공백에서 허용되던 설계와 충돌한다.
+  - (b) 컷 프레임이 직전보다 15dB 이상 크고 곡 중앙값보다 5dB 이상 클 때만 컷을 늦추기: 0곡이 움직인다(이 잡음은 곡 중앙값보다 1.9dB 낮아 "곡보다 큰 소리"가 아니다).
+  - 결론: 표본 1곡(review, 비승인)을 위해 승인 클립 컷을 움직이는 규칙은 넣지 않는다. shortcut: 컷 프레임이 곡 음량 수준의 비음성 잡음이면 클립이 그 위에서 시작한다, 사례가 더 모이면 lead_pad 에 "컷 프레임 음량 <= 곡 중앙값-10dB" 같은 조건을 시험한다(승인 auto 컷 불변을 조건으로).
+- 종료 컷 연장 한계(toa 10-24 #12): 컷이 곡 끝+2.3초에서 멈춘다. 연장은 말이 시작하면 멈추는 규칙이고 이 곡은 반주 위에 말이 얹혀 있어(메모 "MR 종료 반주가 남은 채 잘림") 27절의 알려진 한계 그대로다.
+
+### 8.6 남은 것과 사용자 결정
+- 귀로 못 들음(unverifiable): S3 #50(-13.2초)와 #65(-16.4초, 허밍 여부), 종료 컷 연장/TAIL(곡 끝 +0.3~3초) 전부, 끝 뒤 소리 종류(박수/환호/노래, low 10곡).
+- 사용자 답 대기(규칙 변경 없음): 22/82/18 끝 시각(rize 10-04 #21 의 "1분 끊김", nana 10-06 #02 의 +82초), 승인 시작 늦은 곡의 의도, #45(nana 10-16 #14, 시작 late/low 로 남음) 전주 포함 선호.
+- 되돌리기: 이전 클립은 `out/stale_v5/{final,final_review}`, 이전 카드/3_final/4_scene 은 `out/stale_v5/state/<방송>/`. RULE 을 되돌리려면 `make_final.RULE` 과 selftest/`memo_audit.py` selftest 단언(11/13)도 함께.
+- n_visual 은 호스트 venv 에서만 돈다. 이번 재생성 중 `4_scene.json` 191후보 전부에 vis 가 채워졌다(건너뜀 0).
+- 이후 경계 규칙만 바꾼 재실행은 `reroute_nas.py --manifest`(바뀐 후보만 NAS 를 읽음)와 `SHARD` 동시 실행 `final_nas.py` 로 약 10분 안팎으로 줄일 수 있다.

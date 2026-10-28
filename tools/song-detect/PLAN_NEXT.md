@@ -15,6 +15,7 @@
 | P5 시작 제안(S3) | 부분 반영 | proto/sd-integrate: auto 가 아닌 곡에만(HANDOFF 29절), 호흡 보존/도입 병합은 기각 |
 | P6 화면 신호 | 반영 | n_visual weak 표시(임계 1.026), 등록부 끈 N 노출 14 -> 11/55(표본 내), hold-out 16 -> 14/55 |
 | P7 후보 10곡 선택, P8 가치 확인 | P8 일부 시행 | 시각 정렬/학습형 AND/asr 힌트/YAMNet 추가 클래스는 기각 또는 미연결(integration.md 5절), P7 미착수 |
+| 61방송 재생성(RULE v6-integrate) | 완료 | 등급 이동 0, 클립 62곡(weak 1곡 제외), memo hit 8/11/12, 승인 auto 이동 0, 자체 검수 62클립(HANDOFF 30절) |
 
 ## 0. 지난 처리의 문제 (먼저 인정)
 

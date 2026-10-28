@@ -527,3 +527,23 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 
 ### 한계
 - 귀로 못 들음(S3 #50 #65 등 unverifiable). n_visual 은 표본 내 보정이고 golden gate 는 weak/vis 를 안 본다(shadow diff 와 golden 직접 점수로 확인). reroute --manifest 는 임시 폴더(2방송)에서 NAS 재계산과 vis 까지 끝까지 시험했고 61방송 메인 out/ 에는 돌리지 않았다(산출물 보호, 처음 실행은 191후보 전부를 읽어 약 25분).
+
+## 30. 61방송 재생성: RULE v6-integrate (2026-10-29, 브랜치 proto/sd-integrate) - 새 세션은 이 절과 experiments_log/integration.md 8절을 먼저 읽는다
+
+29절의 "사용자 결정이 필요한 것" 1번(E1B_LOUD/S3/화면 신호를 기존 완성본에 반영)을 실행했다. 자세한 표는 `experiments_log/integration.md` 8절.
+
+### 한 일 (총 약 1시간, 예상의 1.5배 초과 단계 없음, NAS 401 없음)
+- `make_final.RULE` "v5-bounds" -> "v6-integrate". 이전 클립은 `out/stale_v5/{final,final_review}`(삭제 안 함), 이전 카드/3_final/4_scene 은 `out/stale_v5/state/<방송>/`.
+- `SONG_NOCLIP=1 C:/_tools/wt/venv/Scripts/python.exe datasets/reroute_nas.py --manifest`(호스트 venv, vis 까지, 28분) -> `SHARD=k/n python datasets/final_nas.py auto|review` 4 프로세스(27분, 새 SHARD 환경변수). 이후 `experiments/self_check_media.py`, `self_check_build.py`(blind12), `regen_clips_diff.py`, `regen_compare.py`, 새 `regen_loudness.py`.
+
+### 결과
+- 등급 수 auto 42 / review 21 / drop 128 그대로(등급 이동 0). weak 후보 60 -> 72(+12). review 1곡(rang 10-21 #02, 3D 게임 화면)이 weak 가 되어 클립은 63 -> 62곡.
+- golden 이탈 0(화이트리스트 6), 승인(auto 42곡) 곡 시작/끝 이동 0(컷 1곡 +0.30초), 메모 감사(실제 클립) hit@0.5/3/10 5/9/11 -> 8/11/12, 중앙 오차 1.9 -> 0.35초, 방향 13 -> 16/27, 길이>5초 2 -> 1, 경계 좋음 67/67, 곡 사라짐 0. selftest 11/11, test_route ok, logo_route 14/55 / 라이브 걸림 0/49. 클립 62/62 ok, 원본 음량 차이 평균 -0.07dB(최대 |0.22|), 리미터 0.
+- 바뀐 클립 6곡: rize 10-04 #23 끝 -2.4초(E1B_LOUD), nana 10-16 #13/#19/#21 시작 -25.7/-13.1/-6.8초와 mary 10-18 #03 시작 -16.3초(S3), toa 10-24 #08 끝 컷 +0.3초.
+- 자체 시청 검수(`data/review/blind12/self_check.json`, 62클립 프레임/스펙트로그램을 모두 직접 봄, 귀로는 못 들음): 시작 ok 52 / late 7 / speech 3, 끝 ok 41 / speech 9 / early 7 / late 3 / mr 2, 확신도 high 21 / mid 31 / low 10, 메모 49클립 전부 메모 대비 기록. 시작 late 11 -> 7(S3 로 4곡 해소).
+- 규칙 수정 0회: 명백한 결함은 mary 10-23 #01 의 시작(컷이 곡 음량 수준의 짧은 비음성 잡음 위)이 하나였고, 원인은 `lead_pad` 의 음성 없음 공백 폴백(음량 무제한)이다. 음량 제한(승인 auto 컷과 시작 late review 를 움직임)과 온셋 규칙(0곡 반응) 두 후보를 대입해 보고 채택하지 않았다(integration.md 8.5).
+
+### 사용자 결정/확인이 필요한 것
+- 청취 확인(unverifiable): S3 #50, #65(허밍), 종료 컷 연장/TAIL 전부, 끝 뒤 소리 종류(low 10곡). 27절의 "컷 곡 끝 +1초" 원칙 변경은 여전히 사용자 확인 사항이다.
+- 미결 질문 3개(22/82/18 끝 시각, 승인 시작 늦은 곡 의도, #45 전주 포함 선호)는 그대로. S3 를 auto 에 쓰려면 2, 3번 답이 필요하다.
+- n_visual 임계 1.026 은 표본 내 보정이다(29절). 이번 재생성에서 라이브(auto/review 62곡) vis 최대 0.59 로 임계와 간격은 충분했다.
