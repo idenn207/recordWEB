@@ -6,7 +6,7 @@
 shortcut: (1) 모델 선택(SigLIP2 B/16 단독)은 4모델 비교를 본 뒤 고른 것이라 선택 편향이 있다(선택 없는 4모델 평균은 N 22/71, 손실 0). (2) 라이브가 스트리머 11명 표본(2명이 절반)이라 새 스트리머에서 라이브가 걸릴 수 있다(걸려도 weak 표시일 뿐 drop 아님).
 (3) 같은 날 같은 GTA 장면의 라이브(리제 10-03 #14648)는 화면으로 못 가른다 -> 반드시 weak/우선순위로만 쓰고 단독 drop 금지.
 사용: python n_visual.py (자가검사)"""
-import json, os, subprocess
+import json, os, subprocess, sys
 from pathlib import Path
 
 CAL = Path(__file__).parent / "n_visual_cal.json"
@@ -63,33 +63,40 @@ def vis_of(comps, c=None):
     return sum((v - mu) / sd for v, mu, sd in zip(comps, c["mu"], c["sd"])) / len(comps)
 
 
-def frames_of(src, s, e, n=NF):
-    """구간 [s,e] 를 n 등분한 중앙 시각의 프레임 n장(PIL, 398x224). NAS 주소는 세션 쿠키로 읽는다. 실패한 프레임은 건너뜀"""
+def _frame(src, t):
     import io
     from PIL import Image
     import nas_auth
-    out = []
-    for i in range(n):
-        t = s + (e - s) * (i + 0.5) / n
-        try:
-            raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", *nas_auth.ffargs(src), "-i", str(src), "-frames:v", "1", "-vf", "scale=398:224", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
-                                 capture_output=True, check=True, timeout=120, creationflags=0x4000 if os.name == "nt" else 0).stdout
-            out.append(Image.open(io.BytesIO(raw)).convert("RGB"))
-        except Exception:
-            pass
-    return out
+    try:
+        raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", *nas_auth.ffargs(src), "-i", str(src), "-frames:v", "1", "-vf", "scale=398:224", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+                             capture_output=True, check=True, timeout=120, creationflags=0x4000 if os.name == "nt" else 0).stdout
+        return Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception:
+        return None
+
+
+def frames_of(src, s, e, n=NF):
+    """구간 [s,e] 를 n 등분한 중앙 시각의 프레임 n장(PIL, 398x224). NAS 주소는 세션 쿠키로 읽는다(프레임마다 ffmpeg 한 번, 4개 동시: NAS 시크가 프레임당 약 0.6초라 직렬이면 곡당 5초). 실패한 프레임은 건너뜀"""
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(4) as ex:
+        return [im for im in ex.map(lambda i: _frame(src, s + (e - s) * (i + 0.5) / n), range(n)) if im is not None]
 
 
 def fill(segs, src):
-    """keep 후보 중 g['vis'] 가 없는 것에 채운다. 프레임이 3장 미만이면 건드리지 않는다(fire 가 None)"""
-    if not CAL.exists():
+    """keep 후보 중 g['vis'] 가 없는 것에 채운다. 프레임이 3장 미만이면 건드리지 않는다(fire 가 None = 옛 동작). torch/open_clip 이 없으면 ImportError(호출자가 처리: 호스트 venv 에서만 쓸 수 있음).
+    프레임을 못 읽은 후보 수는 stderr 에 한 줄로 알린다(세션 만료 등을 조용히 넘기지 않게)."""
+    todo = [g for g in segs if g.get("keep") and g.get("vis") is None]
+    if not CAL.exists() or not todo:
         return
+    _load()
     c = cal()
-    for g in segs:
-        if g.get("keep") and g.get("vis") is None:
-            im = frames_of(src, g["start"], g["end"])
-            if len(im) >= 3:
-                g["vis"] = vis_of(components(im), c)
+    for g in todo:
+        im = frames_of(src, g["start"], g["end"])
+        if len(im) >= 3:
+            g["vis"] = vis_of(components(im), c)
+    miss = sum(g.get("vis") is None for g in todo)
+    if miss:
+        print(f"n_visual: 프레임을 못 읽어 화면 신호가 없는 후보 {miss}/{len(todo)}", file=sys.stderr)
 
 
 def fire(g, c=None):

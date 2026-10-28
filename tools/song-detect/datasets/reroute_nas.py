@@ -41,7 +41,15 @@ def one(r):
 def by_manifest():
     import harness.manifest as M
     from harness.scene_real import real_scene_fn
-    run = M.Run(root=N.ROOT / "out", scene_fn=real_scene_fn)
+    path = {r["slug"]: r["path"] for r in rows}
+
+    def vis_fn(slug, segs):                                    # 화면 신호: torch+open_clip 이 있는 호스트 venv 로 실행할 때만(아니면 건너뜀)
+        try:
+            import n_visual
+            n_visual.fill(segs, N.url_of(path[slug]))
+        except ImportError as e:
+            print(f"n_visual 건너뜀({e.name} 없음): 호스트 venv python 으로 실행하면 화면 신호가 붙는다", file=sys.stderr)
+    run = M.Run(root=N.ROOT / "out", scene_fn=real_scene_fn, vis_fn=vis_fn)
     slugs = [r["slug"] for r in rows]
     try:
         P = run.run(slugs)

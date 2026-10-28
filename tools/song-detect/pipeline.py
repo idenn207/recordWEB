@@ -29,6 +29,18 @@ def card(g, i, clip=None):
         signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk", "bursts", "rel_db")}, clip=clip)
 
 
+def fill_vis(segs, video):
+    """4_scene 단계의 화면 의미 신호 g['vis'](n_visual, SigLIP2 GPU). torch+open_clip 이 있는 호스트 venv(C:/_tools/wt/venv)로 실행할 때만 붙고, 아니면 건너뛴다(분석기 컨테이너에는 없음). vis 가 없으면 route 는 옛 동작.
+    shortcut: 건너뛴 사실은 stderr 한 줄뿐이다(카드에 표시 안 함). 오프라인 배포는 HF 가중치(timm/ViT-B-16-SigLIP2)를 미리 캐시해야 한다."""
+    if not video:
+        return
+    try:
+        import n_visual
+        n_visual.fill(segs, video)
+    except ImportError as e:
+        print(f"n_visual 건너뜀({e.name} 없음): 화면 신호 없이 진행. 붙이려면 torch+open_clip 이 있는 python(호스트 venv)으로 실행", file=sys.stderr)
+
+
 def decide(vid, segs, has_refs):
     """등급 결정: tier -> known_pos -> known_neg -> mark_likely. pipeline.main 과 harness.manifest 가 같은 코드를 쓴다(두 벌이 갈라지지 않게)."""
     from route import tier, known_neg, known_pos, mark_likely
@@ -108,6 +120,7 @@ def main(wav, video, vid, name, force, outroot):
             s["multi"], s["multi_why"] = classify(fr, LIVEP, NEGP)
             s["tstd"], s["blk"] = feats(fr) if len(fr) >= 3 else (None, None)
             s["scene"] = dist(fr, R) if R is not None else None
+        fill_vis(segs, video)
         f4.write_text(json.dumps(dict(has_refs=R is not None, segs=segs), ensure_ascii=False, indent=1), encoding="utf8")
     sc = json.load(open(f4, encoding="utf8"))
     segs = sc["segs"]

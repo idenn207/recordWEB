@@ -14,8 +14,8 @@ import numpy as np
 
 CODE = {"final": [("snap.py", None), ("finalize.py", None)],
         "sig": [("n_signals.py", ("_bursts", "speech_db", "fill"))],
-        "scene": [("scene_multi.py", None), ("scene.py", None), ("scene_pool.py", None)],
-        "route": [("route.py", None), ("n_signals.py", None), ("scene_multi.py", None), ("piano_gate.py", None), ("pipeline.py", ("decide", "card", "card_file", "hms"))]}
+        "scene": [("scene_multi.py", None), ("scene.py", None), ("scene_pool.py", None), ("n_visual.py", None)],
+        "route": [("route.py", None), ("n_signals.py", None), ("scene_multi.py", None), ("piano_gate.py", None), ("pipeline.py", ("decide", "card", "card_file", "hms")), ("n_visual.py", ("fire", "cal", "CAL"))]}
 
 
 def _strip(n):
@@ -76,12 +76,12 @@ def registry_for(vid):
     return out
 
 
-IN_KEYS = ("keep", "why", "start", "end", "len", "multi", "tstd", "blk", "scene", "speech", "music", "vocal", "cover", "bursts", "rel_db", "piano", "other")
+IN_KEYS = ("keep", "why", "start", "end", "len", "multi", "tstd", "blk", "scene", "speech", "music", "vocal", "cover", "bursts", "rel_db", "piano", "other", "vis")
 
 
 class Run:
-    def __init__(self, root=PH / "out_m", scene_fn=None):
-        self.root, self.scene_fn = Path(root), scene_fn
+    def __init__(self, root=PH / "out_m", scene_fn=None, vis_fn=None):
+        self.root, self.scene_fn, self.vis_fn = Path(root), scene_fn, vis_fn      # vis_fn(slug, segs): 화면 신호 g["vis"] 채우기(n_visual, GPU 호스트에서만)
         self.mf = self.root / "manifest.json"
         self.M = json.load(open(self.mf)) if self.mf.exists() else {}
         self.R = {r["slug"]: r for r in rows()}
@@ -99,7 +99,7 @@ class Run:
         if stage == "scene":
             return h(code_key("scene"), fh(d / "3_final.json"), sig_of(ROOT / "cache/scene_pool.npz"))
         if stage == "route":
-            return h(code_key("route"), fh(d / "4_scene.json"), registry_for(s), sig_of(ROOT / "cache/exp12p/other.json"), code_key("sig"))
+            return h(code_key("route"), fh(d / "4_scene.json"), registry_for(s), sig_of(ROOT / "cache/exp12p/other.json"), code_key("sig"), fh(ROOT / "n_visual_cal.json"))
         raise KeyError(stage)
 
     def plan(self, slugs):
@@ -133,12 +133,12 @@ class Run:
         t0 = time.perf_counter()
         d = self.root / s
         old = json.load(open(d / "4_scene.json", encoding="utf8")) if (d / "4_scene.json").exists() else dict(has_refs=False, segs=[])
-        ck = h(code_key("scene"), sig_of(ROOT / "cache/scene_pool.npz"))
+        ck = h(code_key("scene"), sig_of(ROOT / "cache/scene_pool.npz"), fh(ROOT / "n_visual_cal.json"))
         # scene_fn 이 있는 실사용에서는 scene 코드/풀이 지난 실행과 같을 때만 후보를 재사용한다(black_max 같은 임계나 풀이 바뀌면 같은 경계라도 multi 가 달라질 수 있어 전부 다시 읽는다).
         # scene_fn 이 없는 점검용(check.py)은 예전처럼 항상 재사용/근사
         reuse = self.scene_fn is None or self.M.get(s, {}).get("scene_in") == ck
         prev = {seg_key(g): g for g in old["segs"]} if reuse else {}
-        FIELDS = ("multi", "multi_why", "tstd", "blk", "scene")
+        FIELDS = ("multi", "multi_why", "tstd", "blk", "scene", "vis")
         new, redo = [], 0
         for g in (x for x in json.load(open(d / "3_final.json", encoding="utf8")) if x["keep"]):
             p = prev.get(seg_key(g))
@@ -154,6 +154,8 @@ class Run:
                     if best and ov >= 0.8:
                         g.update({k: best.get(k) for k in FIELDS}); g["scene_approx"] = True
             new.append(g)
+        if self.vis_fn:
+            self.vis_fn(s, new)                                    # 재사용한 후보는 vis 가 이미 있어 건너뛰고, 새/바뀐 후보만 프레임을 읽는다
         (d / "4_scene.json").write_text(json.dumps(dict(has_refs=old["has_refs"], segs=new), ensure_ascii=False, indent=1), encoding="utf8")
         self.M.setdefault(s, {})["scene_in"] = ck                  # 쓰기까지 끝낸 뒤에만 기록(중간 실패 때 옛 값이 새 코드 기준으로 보이지 않게)
         self._tick("scene", t0, redo)
