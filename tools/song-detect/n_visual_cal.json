@@ -13,13 +13,14 @@
   0.013772748553399987,
   0.0159698012864498
  ],
- "thr": 0.8045380628175781,
+ "thr": 1.025890653333751,
  "n": 204,
- "n_live": 133,
- "live_max": 0.5875709806173837,
+ "n_live": 246,
+ "live_max": 0.7888006083593592,
  "live_min": -1.5820998413845608,
  "model": [
   "ViT-B-16-SigLIP2",
   "webli"
- ]
+ ],
+ "thr_note": "\uc54c\ub824\uc9c4 \ub77c\uc774\ube0c = visual \ud2b8\ub799 133\uace1 + golden 113\uace1(\ubc30\ud3ec \uacbd\ub85c \uc810\uc218, 144p \ud3ec\ud568)\uc758 \ucd5c\ub313\uac12 + 0.1 x \ubc94\uc704. \ud1b5\ud569 \ub54c 0.8045 -> \uc774 \uac12\uc73c\ub85c \uc62c\ub9bc(golden 144p \ub77c\uc774\ube0c 0.79 \uc640\uc758 \uac04\uaca9 0.015 \uac00 \ub108\ubb34 \uc587\uc544\uc11c)"
 }
