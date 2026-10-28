@@ -16,7 +16,7 @@ from harness.lib import *
 PY = sys.executable
 SELF = [("selftest-route", [PY, "test_route.py"]), ("selftest-detect", [PY, "test_detect.py"]), ("selftest-snap", [PY, "snap.py", "selftest"]), ("selftest-finalize", [PY, "finalize.py", "selftest"]),
         ("selftest-make_final", [PY, "make_final.py", "selftest"]), ("selftest-pipeline", [PY, "pipeline.py", "selftest"]), ("selftest-manifest", [PY, "harness/manifest.py", "selftest"]),
-        ("selftest-shadow", [PY, "harness/shadow_diff.py", "selftest"]), ("selftest-memo", [PY, "experiments/memo_audit.py", "selftest"]), ("selftest-tune", [PY, "tune.py"])]
+        ("selftest-shadow", [PY, "harness/shadow_diff.py", "selftest"]), ("selftest-memo", [PY, "experiments/memo_audit.py", "selftest"]), ("selftest-tune", [PY, "tune.py"]), ("selftest-n_visual", [PY, "n_visual.py"])]
 ACC = PH / "check_accepted"
 
 

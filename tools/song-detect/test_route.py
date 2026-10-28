@@ -96,3 +96,10 @@ print("n_signals ok")
 f = tempfile.mktemp(suffix=".json"); json.dump([dict(videoNo="s_1", start=100, end=300, src="t", boundary_ok=False)], open(f, "w"))
 g = seg(start=102, end=298, tier="review"); known_pos("s_1", g, f); assert g["tier"] == "review" and "경계 문제" in g["tier_why"] and "ref_bd" not in g
 os.remove(f); print("boundary_ok ok")
+# 화면 신호(n_visual): vis 가 임계 초과면 weak(likely 제외, drop 아님), 오디오 신호가 없어도 단독 판단, vis 없으면 옛 동작
+import n_visual
+if n_visual.CAL.exists():
+    th = n_visual.cal()["thr"]
+    S = [seg(start=400, tier="review", multi="live", rel_db=3.0, bursts=0.0, vis=v) for v in (th - 0.1, th + 0.1)] + [seg(start=400, tier="review", multi="live", vis=th + 0.1), seg(start=400, tier="review", multi="live", rel_db=3.0, bursts=0.0)]
+    mark_likely(S); assert [(g["weak"], g["likely"]) for g in S] == [(False, True), (True, False), (True, False), (False, True)] and S[1]["nsig"] and S[1]["tier"] == "review"
+print("n_visual ok")

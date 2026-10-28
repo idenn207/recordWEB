@@ -11,6 +11,7 @@
 import json, sys
 from scene_multi import P as MP    # 영상 움직임 임계값(motion/weak)을 한 곳에서
 from n_signals import fire         # 등록부 없는 N 오디오 신호(말소리보다 작은 BGM, 곡 중 말 덩어리)
+from n_visual import fire as vfire  # 등록부 없는 N 화면 신호(g['vis'], n_visual.fill 이 채울 때만; 없으면 None 이라 옛 동작)
 
 P = dict(wait_s=300, scene_idle=0.03, scene_ok=0.075, scene_drop=0.18, len_lo=125, len_hi=340)
 # shortcut: 임계값은 3개 채널에서 정함, 새 채널의 같은 채널 기준이 쌓이면 채널별 분포로 다시 보정
@@ -56,7 +57,9 @@ def mark_likely(segs, p=P, n_max=20, win=3600):
     shortcut: 근거는 blind5/6/8/9 표본(eval_blind.py blind9)뿐, 새 채널 표본이 쌓이면 재보정. speech 는 drop 이 아니라 likely 표시에만 쓴다(라이브 B 에도 0.09 가 있음)"""
     ts = [x["start"] for x in segs if x["keep"]]
     for g in segs:
-        sig = fire(g)
+        sig, vs = fire(g), vfire(g)
+        if vs is not None:                               # 화면 신호가 있으면 오디오 신호와 합친다(오디오 신호가 없어도 판단 가능). 둘 다 weak 표시일 뿐 drop 아님(게임 화면 속 라이브 보호)
+            sig = (sig or []) + vs
         g["nsig"] = sig or []
         g["weak"] = bool(sig) if sig is not None else MP["weak"] <= (g.get("tstd") or 0) <= MP["motion"]      # 신호가 없을 때의 대역: 라이브 70개 전부 <25, N 중 28개가 이 대역 = 라이브 신호로 약함
         dense = any(sum(a <= t < a + win for t in ts) >= n_max for a in ts if a <= g["start"] < a + win)
