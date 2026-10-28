@@ -266,3 +266,24 @@ def nov_start(back=45.0, L=8, zthr=1.0, minmove=1.0, pick="max", mu=0.0, skip_mo
         return (t, e) if len(seg) and seg[:, 2].mean() >= mu else (s, e)
     prop.__name__ = name
     return prop
+
+
+def s1b(within=12.0, silmin=0.5, deep=-55.0, vmax=0.35, lead=0.3, minleft=90.0, spmax=0.3, name="s1b"):
+    """S1b(#111 사운드체크): 시작 뒤 within 초 안에 짧은 디지털 무음(deep dB 미만 silmin 초 이상)이 있고 그 앞(시작~무음)이 보컬 없는 MR 조각(vocal<vmax, Speech<spmax)이면 무음 끝 - lead 를 시작으로. S1 은 2초 이상 정지만 본다."""
+    from snap import vwin
+    def prop(pcm, a, voc, s, e, s0, e0):
+        d = dbt(pcm)
+        if d is None or not voc:
+            return s, e
+        i0, i1 = int(s / 0.1), int((s + within) / 0.1)
+        x = d[i0:i1]
+        for v, i, j in runs(x < deep):
+            if v and (j - i) * 0.1 >= silmin and i * 0.1 >= 1.0 and j < len(x):
+                t = s + i * 0.1
+                w = [vwin(voc, a, tt) for tt in np.arange(s, t, 5.0)]
+                w = [q[0] for q in w if q]
+                if w and np.mean(w) < vmax and sp_of(a, s, t).mean() < spmax and e - (s + j * 0.1) >= minleft:
+                    return s + j * 0.1 - lead, e
+        return s, e
+    prop.__name__ = name
+    return prop
