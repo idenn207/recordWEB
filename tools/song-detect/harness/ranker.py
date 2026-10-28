@@ -51,6 +51,7 @@ def holdout_rank(df, by, model, feats, gpu=False, q=(0.0, 0.05), veto_mode="hold
     p, veto = np.zeros(n), np.zeros(n, bool)
     thr = {f"q{int(x * 100)}": np.zeros(n) for x in q}
     thr_fold = {k: [] for k in thr}
+    lvs = {}          # 폴드(그룹)별 학습 라이브의 안쪽 교차검증 p (conformal 임계용)
     X, y, g = df[feats].to_numpy(float), df.live.to_numpy(), df[by].to_numpy()
     for grp in np.unique(g):
         te, tr = g == grp, g != grp
@@ -68,11 +69,12 @@ def holdout_rank(df, by, model, feats, gpu=False, q=(0.0, 0.05), veto_mode="hold
         for a, b in GroupKFold(k).split(X[trm], y[trm], gi):
             inner[b] = p_of(mk(model, gpu).fit(X[trm][a], y[trm][a]), X[trm][b])
         lv = inner[y[trm] == 1]
+        lvs[grp] = lv
         for kk, qq in zip(thr, q):
             t = float(np.quantile(lv, qq))
             thr[kk][te] = t
             thr_fold[kk].append(t)
-    return dict(p=p, veto=veto, thr=thr, thr_fold=thr_fold)
+    return dict(p=p, veto=veto, thr=thr, thr_fold=thr_fold, lvs=lvs)
 
 
 def ece(p, y, bins=10):
