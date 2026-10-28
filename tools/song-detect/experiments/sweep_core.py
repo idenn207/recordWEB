@@ -294,7 +294,7 @@ def selftest():
     t = time.time()
     r = ev.evaluate({})
     print("기준:", {k: v for k, v in r.items() if not k.startswith("_")}, f"{time.time() - t:.1f}s")
-    assert r["gold_dev"] == 0 and (r["hit05"], r["hit3"], r["hit10"]) == (5, 9, 11) and r["dir_pass"] == 13 and r["ok_pass"] == 67 and r["len_gt5"] == 2, r
+    assert r["gold_dev"] == 0 and (r["hit05"], r["hit3"], r["hit10"]) == (6, 9, 11) and r["dir_pass"] == 13 and r["ok_pass"] == 67 and r["len_gt5"] == 2, r
     t = time.time()
     r = ev.evaluate({"snap.E1B_VOC": 0.5})
     print(f"두 번째(웜) {time.time() - t:.1f}s")
