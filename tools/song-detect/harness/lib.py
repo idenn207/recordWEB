@@ -37,7 +37,7 @@ class _JsonShim:
         self._j, self._c = _j, {}
 
     def load(self, f):
-        k = getattr(f, "name", str(f))
+        k = os.path.basename(getattr(f, "name", str(f)))
         if k not in self._c:
             self._c[k] = self._j.load(f)
         return self._c[k]
