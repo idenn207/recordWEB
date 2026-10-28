@@ -29,6 +29,20 @@ def card(g, i, clip=None):
         signals={k: g.get(k) for k in ("cover", "vocal", "speech", "music", "tstd", "blk", "bursts", "rel_db")}, clip=clip)
 
 
+def decide(vid, segs, has_refs):
+    """등급 결정: tier -> known_pos -> known_neg -> mark_likely. pipeline.main 과 harness.manifest 가 같은 코드를 쓴다(두 벌이 갈라지지 않게)."""
+    from route import tier, known_neg, known_pos, mark_likely
+    for g in segs:
+        g["tier"], g["tier_why"] = tier(g, has_refs)
+        known_pos(vid, g)                                       # 사용자 승인/사람 검수 구간은 auto, 그 뒤 비대상 확인이 이기게 한다
+        known_neg(vid, g)
+    mark_likely(segs)                                           # 등급 확정 뒤(몰림 판정에 방송 전체 후보가 필요)
+
+
+def card_file(O, i, g):
+    return Path(O) / "cards" / f"{i:02d}_{g['tier']}_{hms(g['start'])}.json"
+
+
 def run(cmd):
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
@@ -81,7 +95,7 @@ def main(wav, video, vid, name, force, outroot):
         video = url144(int(vid))
     if not f4.exists():                                          # 장면: 승인 풀(cache/scene_pool.npz) 기준, scene_new.py 와 같은 방식
         import scene_pool
-        from scene import thumbs, dist
+        from scene import nas_thumbs, dist
         from scene_multi import classify, feats
         meta, F = scene_pool.pool()
         day = re.match(r"\d{4}-\d{2}-\d{2}(?=_)", vid)           # NAS 슬러그(YYYY-MM-DD_이름_n)면 풀에서 같은 스트리머+날짜(=이 방송 자신)를 뺀다: 자기 프레임과 비교하는 누수(거리 0.000) 방지. shortcut: 영상번호 방송은 기존 그대로
@@ -90,13 +104,12 @@ def main(wav, video, vid, name, force, outroot):
         R = scene_pool.cat(meta, F, lambda m: keep(m) and m["name"] == name)["live"] if name and scene_pool.eligible(meta, name, keep) else None   # 승인 이력 부족(5곡/2방송 미만)이면 새 채널 취급
         segs = [g for g in json.load(open(f3, encoding="utf8")) if g["keep"]]
         for s in segs:
-            fr = thumbs(video, s["start"], s["end"]) if video else np.zeros((0, 1), np.float32)
+            fr = nas_thumbs(video, s["start"], s["end"]) if video else np.zeros((0, 1), np.float32)      # NAS 가 응답하지 않으면 NasDown(장면 값이 None 으로 저장되지 않게 4_scene.json 쓰기 전에 중단)
             s["multi"], s["multi_why"] = classify(fr, LIVEP, NEGP)
             s["tstd"], s["blk"] = feats(fr) if len(fr) >= 3 else (None, None)
             s["scene"] = dist(fr, R) if R is not None else None
         f4.write_text(json.dumps(dict(has_refs=R is not None, segs=segs), ensure_ascii=False, indent=1), encoding="utf8")
     sc = json.load(open(f4, encoding="utf8"))
-    from route import tier, known_neg, known_pos, mark_likely
     segs = sc["segs"]
     import piano_gate
     piano_gate.annotate(vid, segs)                               # cache/exp12p/other.json 이 있을 때만 g['piano'] 표시(선택)
@@ -105,11 +118,7 @@ def main(wav, video, vid, name, force, outroot):
     (O / "cards").mkdir(exist_ok=True)
     for old in (O / "cards").glob("*.json"):
         old.unlink()
-    for g in segs:
-        g["tier"], g["tier_why"] = tier(g, sc["has_refs"])
-        known_pos(vid, g)                                       # 사용자 승인/사람 검수 구간은 auto, 그 뒤 비대상 확인이 이기게 한다
-        known_neg(vid, g)
-    mark_likely(segs)                                           # 등급 확정 뒤(몰림 판정에 방송 전체 후보가 필요)
+    decide(vid, segs, sc["has_refs"])
     for i, g in enumerate(segs, 1):
         clip = None
         if g["tier"] in ("auto", "review", "optional") and not os.environ.get("SONG_NOCLIP"):     # SONG_NOCLIP=1: 미리보기 클립 생략(완성본은 make_final 이 따로 만든다)
@@ -121,7 +130,7 @@ def main(wav, video, vid, name, force, outroot):
                 if video and "192.168.0.10" in video:      # NAS 1080p60 원본: 미리보기용으로 줄인다(auto 720p, 나머지 480p, 30fps)
                     enc[:0] = ["-vf", f"scale=-2:{720 if g['tier'] == 'auto' else 480},fps=30"]
                 run(["ffmpeg", "-v", "error", "-y", "-ss", f"{g['start']:.2f}", "-to", f"{g['end']:.2f}", "-i", video or str(wav)] + enc + [str(clip)])
-        (O / "cards" / f"{i:02d}_{g['tier']}_{hms(g['start'])}.json").write_text(json.dumps(card(g, i, str(clip) if clip else None), ensure_ascii=False, indent=1), encoding="utf8")
+        card_file(O, i, g).write_text(json.dumps(card(g, i, str(clip) if clip else None), ensure_ascii=False, indent=1), encoding="utf8")
     print(vid, name, "기준 있음" if sc["has_refs"] else "새 채널", dict(Counter(g["tier"] for g in segs)), "->", O)
     return segs
 
@@ -132,6 +141,9 @@ def selftest():
     assert c["boundary"]["detect"] == [11.0, 99.0] and c["boundary"]["refine"] == [10.5, 98.0] and c["boundary"]["final"] == [10.0, 100.0]
     assert card(dict(start=1.0, end=2.0, len=1.0, tier="drop", tier_why="x"), 2)["boundary"]["refine"] == [1.0, 2.0]   # 보정 안 된 구간도 카드가 만들어짐
     assert hms(3725.4) == "1h02m05s"
+    h = dict(keep=True, start=1000.0, end=1200.0, len=200.0, multi="live", tstd=10.0, scene=0.05, speech=0.0)
+    decide("no_such_video", [h], True)                          # 등급 결정 공용 함수: 장면 거리가 정상 범위인 125~340초 후보는 auto, 표시 필드가 채워진다
+    assert h["tier"] == "auto" and h["weak"] is False and h["nsig"] == [] and card_file("o", 3, h).as_posix() == "o/cards/03_auto_0h16m40s.json", h
     print("selftest ok")
 
 

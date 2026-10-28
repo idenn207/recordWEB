@@ -22,6 +22,18 @@ def url_of(date, who):
     return f"{API}/download?path={q(f['path'])}"
 
 
+class NasDown(RuntimeError):
+    """NAS 영상에서 프레임을 못 읽음(세션 만료 401 또는 읽기 실패). thumbs 는 실패를 빈 배열로 삼키므로 NAS 주소에서는 호출자가 이 예외로 바꿔야 장면 값이 None 으로 저장되지 않는다."""
+
+
+def nas_thumbs(url, s, e):
+    """thumbs 와 같고, NAS 주소(API)에서 프레임이 3장 미만이면 NasDown. NAS 가 아니면(로컬 파일, 144p 주소) thumbs 그대로."""
+    fr = thumbs(url, s, e)
+    if str(url).startswith(API) and len(fr) < 3:
+        raise NasDown(f"NAS 프레임 {len(fr)}장 ({s:.0f}~{e:.0f}초): 세션 만료(401)이거나 읽기 실패. 로그인을 시도하지 않고 중단")
+    return fr
+
+
 def thumbs(url, s, e):
     """[s,e) 초의 키프레임을 48x27 회색으로. 키프레임만 디코딩하므로 1080p60 도 수 초면 된다.
     원격 파일이 응답 없이 멈추는 경우가 있어 읽기 제한(rw_timeout)과 전체 타임아웃을 두고, 실패하면 빈 배열(= 장면을 못 읽음)을 돌려준다."""

@@ -15,7 +15,7 @@ import numpy as np
 CODE = {"final": [("snap.py", None), ("finalize.py", None)],
         "sig": [("n_signals.py", ("_bursts", "speech_db", "fill"))],
         "scene": [("scene_multi.py", None), ("scene.py", None), ("scene_pool.py", None)],
-        "route": [("route.py", None), ("n_signals.py", None), ("scene_multi.py", None), ("piano_gate.py", None)]}
+        "route": [("route.py", None), ("n_signals.py", None), ("scene_multi.py", None), ("piano_gate.py", None), ("pipeline.py", ("decide", "card", "card_file", "hms"))]}
 
 
 def _strip(n):
@@ -133,7 +133,11 @@ class Run:
         t0 = time.perf_counter()
         d = self.root / s
         old = json.load(open(d / "4_scene.json", encoding="utf8")) if (d / "4_scene.json").exists() else dict(has_refs=False, segs=[])
-        prev = {seg_key(g): g for g in old["segs"]}
+        ck = h(code_key("scene"), sig_of(ROOT / "cache/scene_pool.npz"))
+        # scene_fn 이 있는 실사용에서는 scene 코드/풀이 지난 실행과 같을 때만 후보를 재사용한다(black_max 같은 임계나 풀이 바뀌면 같은 경계라도 multi 가 달라질 수 있어 전부 다시 읽는다).
+        # scene_fn 이 없는 점검용(check.py)은 예전처럼 항상 재사용/근사
+        reuse = self.scene_fn is None or self.M.get(s, {}).get("scene_in") == ck
+        prev = {seg_key(g): g for g in old["segs"]} if reuse else {}
         FIELDS = ("multi", "multi_why", "tstd", "blk", "scene")
         new, redo = [], 0
         for g in (x for x in json.load(open(d / "3_final.json", encoding="utf8")) if x["keep"]):
@@ -145,12 +149,13 @@ class Run:
                 if self.scene_fn:
                     g.update(self.scene_fn(s, g))
                 else:
-                    best = max(old["segs"], key=lambda q: min(g["end"], q["end"]) - max(g["start"], q["start"]), default=None)
+                    best = max(old["segs"], key=lambda q: min(g["end"], q["end"]) - max(g["start"], q["start"]), default=None) if reuse else None
                     ov = best and (min(g["end"], best["end"]) - max(g["start"], best["start"])) / max(g["len"], 1e-9)
                     if best and ov >= 0.8:
                         g.update({k: best.get(k) for k in FIELDS}); g["scene_approx"] = True
             new.append(g)
         (d / "4_scene.json").write_text(json.dumps(dict(has_refs=old["has_refs"], segs=new), ensure_ascii=False, indent=1), encoding="utf8")
+        self.M.setdefault(s, {})["scene_in"] = ck                  # 쓰기까지 끝낸 뒤에만 기록(중간 실패 때 옛 값이 새 코드 기준으로 보이지 않게)
         self._tick("scene", t0, redo)
         return redo
 
@@ -180,20 +185,21 @@ class Run:
     def route(self, s):
         t0 = time.perf_counter()
         import pipeline, piano_gate
-        from route import tier, known_neg, known_pos, mark_likely
         d = self.root / s
         sc = json.load(open(d / "4_scene.json", encoding="utf8"))
         segs = sc["segs"]
         self.sig(s, segs)
         piano_gate.annotate(s, segs)
         ins = [{k: g.get(k) for k in IN_KEYS} for g in segs]            # 카드 v2: 결정 입력은 결정 전에 복사
-        for g in segs:
-            g["tier"], g["tier_why"] = tier(g, sc["has_refs"])
-            known_pos(s, g); known_neg(s, g)
-        mark_likely(segs)
+        pipeline.decide(s, segs, sc["has_refs"])                        # pipeline.main 과 같은 코드
+        (d / "cards").mkdir(exist_ok=True)
+        for old in (d / "cards").glob("*.json"):
+            old.unlink()
         cards = []
         for i, (g, inp) in enumerate(zip(segs, ins), 1):
-            c = pipeline.card(g, i); c["slug"], c["has_refs"], c["g_in"] = s, sc["has_refs"], inp
+            c = pipeline.card(g, i)
+            pipeline.card_file(d, i, g).write_text(json.dumps(c, ensure_ascii=False, indent=1), encoding="utf8")     # pipeline.main 이 SONG_NOCLIP=1 로 쓰는 카드 파일과 같다(클립 없음)
+            c["slug"], c["has_refs"], c["g_in"] = s, sc["has_refs"], inp
             cards.append(c)
         (d / "cards2.json").write_text(json.dumps(cards, ensure_ascii=False), encoding="utf8")
         self._tick("route", t0)
@@ -201,15 +207,17 @@ class Run:
 
     def run(self, slugs, force=()):
         P = self.plan(slugs)
-        for s, st in P.items():
-            if "final" in st or "final" in force:
-                self.final(s)
-            if "scene" in st or "scene" in force:
-                self.scene(s)
-            if "route" in st or "route" in force:
-                self.route(s)
-            self.M[s] = {k: self.key(k, s) for k in ("final", "scene", "route")}
-        self.mf.write_text(json.dumps(self.M, indent=1))
+        try:
+            for s, st in P.items():
+                if "final" in st or "final" in force:
+                    self.final(s)
+                if "scene" in st or "scene" in force:
+                    self.scene(s)
+                if "route" in st or "route" in force:
+                    self.route(s)
+                self.M[s] = {**self.M.get(s, {}), **{k: self.key(k, s) for k in ("final", "scene", "route")}}
+        finally:                                                  # 중간에 NasDown 등으로 멈춰도 끝낸 방송은 기록한다(못 끝낸 방송은 키가 안 맞아 다음에 다시 계산)
+            self.mf.write_text(json.dumps(self.M, indent=1))
         return P
 
 
@@ -219,6 +227,19 @@ def selftest():
     assert a == b                       # 주석과 독스트링 변경은 같은 해시
     assert h(1, 2) == h(1, 2) and h(1, 2) != h(1, 3)
     assert code_key("route") == code_key("route") and len(code_key("final")) == 12
+    import tempfile
+    root = Path(tempfile.mkdtemp()); (root / "x").mkdir()           # 장면 재사용 규칙: scene_fn 이 있으면 scene 코드/풀 키가 지난 실행과 같을 때만 같은 경계의 후보를 재사용한다
+    seg = lambda a: dict(keep=True, start=a, end=a + 200.0, len=200.0)
+    (root / "x" / "4_scene.json").write_text(json.dumps(dict(has_refs=True, segs=[dict(seg(0.0), multi="old", multi_why="", tstd=1.0, blk=0.0, scene=0.1), dict(seg(300.0), multi="old", multi_why="", tstd=1.0, blk=0.0, scene=0.1)])))
+    (root / "x" / "3_final.json").write_text(json.dumps([seg(0.0), seg(300.5)]))             # 두 번째 후보 경계가 바뀜
+    calls = []
+    fn = lambda slug, g: calls.append(g["start"]) or dict(multi="new", multi_why="", tstd=2.0, blk=0.0, scene=0.2)
+    r = Run(root, scene_fn=fn)
+    assert r.scene("x") == 2 and calls == [0.0, 300.5]              # 처음(기록 없음)에는 전부 다시 읽는다
+    calls.clear(); (root / "x" / "3_final.json").write_text(json.dumps([seg(0.0), seg(301.0)]))
+    assert r.scene("x") == 1 and calls == [301.0]                    # 같은 코드/풀: 경계가 같은 후보는 재사용
+    r.M["x"]["scene_in"] = "다른키"; calls.clear()
+    assert r.scene("x") == 2 and len(calls) == 2                     # 코드/풀이 바뀌면 같은 경계도 전부 다시
     print("selftest ok")
 
 
