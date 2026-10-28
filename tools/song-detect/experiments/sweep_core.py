@@ -102,7 +102,8 @@ def _wk_run(args):
     cfg, jobs, bias = args
     import audit_engine as E
     tune = _S["tune"]
-    undo = tune.apply({k: v for k, v in cfg.items() if not k.startswith("refine.refine.")})
+    undo = tune.apply({k: v for k, v in cfg.items() if not k.startswith(("refine.refine.", "_"))})
+    undo2 = variant(cfg.get("_off"), cfg.get("_order"))
     out = {}
     try:
         for vid, segs in jobs.items():
@@ -120,8 +121,44 @@ def _wk_run(args):
             if len(E._W) > 12:
                 E._W.clear(); gc.collect()
     finally:
+        undo2()
         undo()
     return out
+
+
+ORDERS = {                                   # snap() 안 끝 규칙 순서 변형(원본: E1 -> E1b -> E3)
+    "E1,E3,E1b": ("E1", "E3", "E1b"), "E1b,E1,E3": ("E1b", "E1", "E3"), "E3,E1,E1b": ("E3", "E1", "E1b"), "E3,E1b,E1": ("E3", "E1b", "E1"), "E1b,E3,E1": ("E1b", "E3", "E1"),
+}
+
+
+def variant(off=None, order=None):
+    """off: 끈 규칙 목록(E1 E1b E2 E3 S1 S2, blind9_bounds.patched), order: 끝 규칙 순서 변형 이름(ORDERS). 되돌리는 함수를 돌려준다.
+    순서 변형은 snap.snap 소스를 다시 컴파일한다(finalize.snap 바인딩도 교체)."""
+    import inspect, finalize
+    from blind9_bounds import patched
+    undo = patched(set(off or ()))
+    orig = snap.snap
+    forig = finalize.snap
+    if order:
+        src = inspect.getsource(orig)
+        line = {"E1": '    e2 = mv(trace, "E1", "end", e2, e2 + run_len(a, e2))',
+                "E1b": '    e2 = mv(trace, "E1b", "end", e2, env_end(pcm, a, ref, s, e2, voc))',
+                "E3": '    e2 = mv(trace, "E3", "end", e2, deep_end(pcm, a, ref, e2))'}
+        seg = {}
+        for k, v in line.items():
+            i = src.index(v)
+            j = src.index(chr(10), i)
+            seg[k] = (i, j)
+        assert seg["E1"][1] < seg["E1b"][0] < seg["E1b"][1] < seg["E3"][0], "snap.py 구조가 바뀜"
+        head, tail = src[:seg["E1"][0]], src[seg["E3"][1]:]
+        new = head + chr(10).join(line[k] for k in ORDERS[order]) + tail
+        exec(compile(new, "snap_variant", "exec"), snap.__dict__)
+        finalize.snap = snap.snap
+    def back():
+        undo()
+        snap.snap = orig
+        finalize.snap = forig
+    return back
 
 
 class Evaluator:

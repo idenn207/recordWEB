@@ -54,15 +54,22 @@ def optim():
 def pareto():
     z = np.load(O / "route_random.npz")
     L, N, A, LA = z["m_L_loss"], z["m_N_all"], z["m_N_auto"], z["m_L_auto"]
-    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
-    s = ax[0].scatter(N[::7], L[::7], c=LA[::7], s=2, cmap="viridis", alpha=.3)
-    ax[0].set_xlabel("N 노출(75)"); ax[0].set_ylabel("라이브 손실(136)"); ax[0].set_yscale("symlog"); plt.colorbar(s, ax=ax[0], label="auto 라이브")
     ok = (L == 0) & (A == 0)
-    ax[1].hist2d(N[ok], LA[ok], bins=[np.arange(12, 45), np.arange(0, 60, 2)], cmap="magma_r")
-    ax[1].set_xlabel("N 노출(75), 손실 0 & N auto 0"); ax[1].set_ylabel("auto 라이브")
-    ax[1].plot([15], [13], "c*", ms=16, label="현재")
-    ax[1].legend()
+    fig, ax = plt.subplots(1, 2, figsize=(15, 6))
+    ax[0].scatter(N[ok] + np.random.default_rng(0).uniform(-.3, .3, ok.sum()), LA[ok] + np.random.default_rng(1).uniform(-.3, .3, ok.sum()), s=3, alpha=.25, c="gray", label=f"제약 만족 {ok.sum()}개 (Sobol 1M 중)")
+    pts = sorted(set(zip(N[ok].tolist(), LA[ok].tolist())))
+    front, best = [], -1
+    for n, la in sorted(pts, key=lambda p: (p[0], -p[1])):
+        if la > best:
+            front.append((n, la)); best = la
+    ax[0].plot(*zip(*front), "r-o", label="파레토(N 노출 최소, auto 라이브 최대)")
+    ax[0].plot([15], [13], "c*", ms=18, label="현재 설정")
+    ax[0].set_xlabel("N 노출(75행)"); ax[0].set_ylabel("auto 로 나간 라이브(136행)"); ax[0].legend(); ax[0].set_title("라이브 손실 0, N auto 0 인 설정들")
+    json.dump(front, open(O / "route_pareto_front.json", "w"))
+    ax[1].scatter(N[::5], L[::5] + 0.0, s=2, c="k", alpha=.15)
+    ax[1].set_yscale("symlog"); ax[1].set_xlabel("N 노출(75)"); ax[1].set_ylabel("라이브 손실(136)"); ax[1].set_title("전체 Sobol 설정(5개 중 1개): 손실 0 을 지키면서 N 을 줄이는 한계")
     plt.tight_layout(); plt.savefig(O / "route_pareto.png", dpi=65); plt.close()
+    print("front", front)
 
 
 if __name__ == "__main__":
