@@ -44,8 +44,8 @@ def step_memo():
     sys.path.insert(0, str(ROOT / "experiments"))
     import memo_audit as M
     exp = M.jl(M.EXP)
-    s = M.summarize(M.evaluate(exp, M.load_src("engine", exp)))
-    b = M.jl(M.BASE)["summary"]["engine"]
+    s = M.summarize(M.evaluate(exp, M.load_src("engine_rev", exp)))      # engine_rev = make_final 과 같은 정책(S3 시작 제안은 auto 가 아닌 곡에만)
+    b = M.jl(M.BASE)["summary"]["engine_rev"]
     fails = [k for k in ("hit@0.5", "hit@3", "hit@10", "dir_pass", "ok_pass", "asym_pass") if s[k] < b[k]] + [k for k in ("vanished", "len_err_gt5") if s[k] > b[k]]
     if s["ok_pass"] != s["ok_n"]:
         fails.append("ok_pass<ok_n")
