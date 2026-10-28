@@ -497,3 +497,33 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 - 사용자 review.csv 판정/메모 -> 판정 반영(labels.py BLIND11 등)과 TAIL/종료 컷 연장 청취 확인(컷 곡 끝 +1초 원칙 변경).
 - NAS 로그인(401) 복구 후 `python datasets/final_nas.py auto review` 와 `regen_clips_diff.py --archive` (5곡 새 컷 반영, 27절).
 - P5(시작 후보 제안, B/review 후보로만), P7(사람 후보 10곡 선택), 화면 의미 신호 시험. '클립 금지' 표시 방송(nana 10-16 #19~#22) 정책 확인.
+
+## 29. 프로토타입 5개 통합 (2026-10-29, 브랜치 proto/sd-integrate, 기준선 song-detect/baseline-20261029) - 새 세션은 이 절과 experiments_log/integration.md 를 먼저 읽는다
+
+자세한 표와 근거는 `experiments_log/integration.md`. 여기는 인덱스다.
+
+### 한 일 (단계마다 별도 커밋, 단계마다 게이트 전/후 표)
+- 도구: `harness/`(manifest, replay, shadow_diff, scene_real, check, fill_vis), `tune.py`(SONG_TUNE 상수 오버라이드), `experiments/integ_final_diff.py`(61방송 4538구간 경계 비교), `experiments/integ_holdout.py`(공통 지표 A/B).
+- sweep 상수: 점수 임계 7개 양자화 재중심화(동작 불변), E1B_LOUD 12 -> 10, black_max 0.50 -> 0.47(motion 34.5 유지).
+- boundary: S3 시작 제안(auto 가 아닌 곡에만), memo_audit/check 의 engine_rev, golden 화이트리스트 6건(3개 review 곡, 재생목록 정답 쪽 이동).
+- visual: n_visual(SigLIP2) + route.mark_likely 훅(weak 표시만) + 4_scene 단계 연결. **임계는 통합 때 0.8045 -> 1.026 으로 재보정**(golden 113곡을 배포 경로로 점수화하니 144p 라이브 둘이 0.76/0.79 로 기존 임계에 0.015 까지 붙었다).
+- 연결: scene.NasDown(NAS 401 을 빈 배열로 삼켜 scene=None 이 저장되던 위험 제거, reroute 는 실패 방송을 되돌리고 중단), pipeline.decide/card_file 공용, `reroute_nas.py --manifest`(출력이 pipeline 경로와 3_final 61/61, 카드 191/191 동일함을 확인 후).
+
+### 공통 정의 (N 노출 수치 모순 정리, 자세한 것은 integration.md 0절)
+- N 노출 = blind9 N 55곡 중 등록부 없이 보이는 곡 수. A = 배포 임계 표본 내(회귀 감시용), B = 스트리머 hold-out + 라이브 풀 136(일반화 주장은 B 로만).
+- 전/후: A 14/55 -> 11/55(후보 카드) 또는 12/55(클립 프레임), 라이브 손실 0. B 규칙 D 16/55 -> +n_visual 14/55, 라이브 손실 1/49(규칙 D 의 hold-out 손실, visual 이 더한 것은 0). 같은 규칙이 풀/분할에 따라 10~16/55 를 오간다. 메모 감사 hit@0.5/3/10 5/9/11 -> 8/11/12, 방향 13 -> 16/27, 길이>5초 2 -> 1, 좋음 67/67, golden 이탈 0.
+
+### 쓰는 법
+- `python harness/check.py`(12초: selftest 11개, golden, 메모 감사(engine_rev), logo_route, 변화 리포트), 의도한 변경이면 `--accept`. 종료코드 0 통과 / 1 게이트 실패 / 2 점검 오류.
+- 경계 규칙을 고친 뒤: `python experiments/integ_final_diff.py cache/proto_integrate/final_base`(3_final 비교), `python datasets/reroute_nas.py --manifest`(바뀐 단계만, 호스트 venv python 이면 vis 까지).
+- 화면 신호: torch+open_clip 이 있는 `C:/_tools/wt/venv/Scripts/python.exe` 로 실행해야 붙는다(아니면 stderr 한 줄 후 옛 동작). HF 가중치 timm/ViT-B-16-SigLIP2 는 오프라인 배포 시 사전 캐시 필요. 임계 재보정은 `integ_holdout.py cal`.
+
+### 사용자 결정이 필요한 것
+- E1B_LOUD/S3 를 기존 완성본에 반영하려면 RULE 상향 + reroute --manifest + final_nas(NAS 로그인 필요). 27절의 TAIL/종료 컷 청취 확인과 같이 결정.
+- 미결 질문 3개(22/82/18 끝 시각, 승인 시작 늦은 5곡 의도, #45 전주 포함 선호)는 그대로. S3 를 auto 에 쓰려면 질문 2, 3 의 답이 필요하다.
+
+### 기각/보류 (integration.md 5절)
+- (a) 시각 점수 review 정렬: 노출 N 이 vis 가 낮아 상위 10곡 중 N 2(무작위 1). (b) 규칙 AND 학습형 weak(CRC): alpha 0.05 에서 라이브 손실 증가 또는 N 1~2곡 이득. (c) asr 가사 힌트: 통합 경계에서 끝 tp 3/12 fp 1/31, 시작 tp 4/9 fp 1/36, 연결 비용 대비 이득 작아 미연결. (d) YAMNet 추가 클래스: 시작 late 와 구별 못 함(AUROC 0.23~0.76, 허밍 #65 의 Humming 0.02).
+
+### 한계
+- 귀로 못 들음(S3 #50 #65 등 unverifiable). n_visual 은 표본 내 보정이고 golden gate 는 weak/vis 를 안 본다(shadow diff 와 golden 직접 점수로 확인). reroute --manifest 는 메인 out/ 에 끝까지 돌리지 않았다(산출물 보호).
