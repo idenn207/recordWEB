@@ -44,6 +44,15 @@ def scen(name):
             r = fresh(); P = r.plan(sl)
         finally:
             (ROOT / "route.py").write_text(src, encoding="utf8")
+    elif name == "knreg":                                       # known_negatives 에 한 방송의 항목 추가(공유 data/ 는 건드리지 않고 키 계산에만 주입)
+        orig, victim = M.registry_for, sl[10]
+        M.registry_for = lambda vid: orig(vid) + ([{"videoNo": victim, "start": 1, "end": 2, "why": "시험"}] if vid == victim else [])
+        try:
+            r = fresh(); P = r.plan(sl)
+            t0 = time.perf_counter(); r.run(sl); out["run_s"] = round(time.perf_counter() - t0, 2); out["stage_s"] = {k: round(v, 2) for k, v in r.t.items()}; out["n"] = r.n
+        finally:
+            M.registry_for = orig
+        fresh().run(sl, force=("route",))
     elif name == "thr":                                         # n_signals 임계 rel_db -5.7 -> -5.0 (route 입력 코드만 변경)
         src = edit("n_signals.py", "P = dict(rel_db=-5.7, bursts=2.1)", "P = dict(rel_db=-5.0, bursts=2.1)")
         try:

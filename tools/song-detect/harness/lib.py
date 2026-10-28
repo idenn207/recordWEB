@@ -48,8 +48,9 @@ class _JsonShim:
 
 def cache_registries():
     """route.json 을 캐시 shim 으로 교체(replay 용). 등록부 파일이 바뀌면 shim 을 새로 만든다."""
-    import route
+    import route, types
     route.json = _JsonShim()
+    route.open = lambda p, *a, **k: types.SimpleNamespace(name=str(p))     # 카드마다 등록부 파일을 여는 비용 제거(윈도우에서 동시 실행 시 파일 열기가 직렬화되어 병렬 처리량을 막았다)
     return route.json
 
 

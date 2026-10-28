@@ -50,6 +50,8 @@ class Replayer:
         a = self.sh._c["approved.json"], self.sh._c["known_negatives.json"]
         if not registry:
             self.sh._c["approved.json"] = self.sh._c["known_negatives.json"] = []
+        import pathlib
+        ex0, pathlib.Path.exists = pathlib.Path.exists, lambda self, **k: True        # route 가 후보마다 등록부 파일 존재를 stat 한다(윈도우에서 1회 0.1~0.2ms, 병렬 처리량을 막음). shortcut: run 안에서만 항상 참
         res = [None] * len(self.cards)
         try:
             for s, idx in self.by.items():
@@ -66,6 +68,7 @@ class Replayer:
                 for i, g in zip(idx, segs):
                     res[i] = (g["tier"], g["likely"], g["weak"], g["tier_why"])
         finally:
+            pathlib.Path.exists = ex0
             for d, o in sv:
                 d.clear(); d.update(o)
             self.sh._c["approved.json"], self.sh._c["known_negatives.json"] = a
