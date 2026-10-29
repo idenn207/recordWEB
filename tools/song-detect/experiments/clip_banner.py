@@ -31,5 +31,5 @@ if __name__ == "__main__":
             if n >= 4:
                 found.append((mp4.relative_to(ROOT).as_posix(), n, mx))
     txt = "\n".join(f"{p}  {n}/7 프레임 (최대 겹침 {mx:.2f})" for p, n, mx in found)
-    print(f"'클립 금지' 문구가 보이는 클립 {len(found)}개\n{txt}")
+    print(f"'클립 금지' 문구가 보이는 클립 파일 {len(found)}개(auto 는 ctx20 사본 포함)\n{txt}")
     (ROOT / "out/CLIP_BANNER.txt").write_text(f"'클립 금지' 문구가 보이는 완성본 클립 파일 {len(found)}개, auto 는 ctx20 사본 포함 (experiments/clip_banner.py). 올리기 전에 정책을 확인한다.\n{txt}\n", encoding="utf8")
