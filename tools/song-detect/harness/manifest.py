@@ -80,10 +80,14 @@ IN_KEYS = ("keep", "why", "start", "end", "len", "multi", "tstd", "blk", "scene"
 
 
 class Run:
-    def __init__(self, root=PH / "out_m", scene_fn=None, vis_fn=None):
-        self.root, self.scene_fn, self.vis_fn = Path(root), scene_fn, vis_fn      # vis_fn(slug, segs): 화면 신호 g["vis"] 채우기(n_visual, GPU 호스트에서만)
+    def __init__(self, root=PH / "out_m", scene_fn=None, vis_fn=None, refs_fn=None):
+        self.root, self.scene_fn, self.vis_fn, self.refs_fn = Path(root), scene_fn, vis_fn, refs_fn      # vis_fn(slug, segs): 화면 신호 g["vis"] 채우기(n_visual, GPU 호스트에서만). refs_fn(slug): 현재 풀로 계산한 has_refs(없으면 이전 4_scene 값 그대로)
         self.mf = self.root / "manifest.json"
-        self.M = json.load(open(self.mf)) if self.mf.exists() else {}
+        try:
+            self.M = json.load(open(self.mf)) if self.mf.exists() else {}
+        except ValueError:                                         # 쓰다 중단돼 깨진 기록: 기록 없음으로 본다(전부 stale 이라 다시 계산할 뿐 틀린 결과는 안 나온다)
+            self.M = {}
+        self.partial = set()                                       # 화면 신호(vis)가 덜 채워진 방송: scene/route 키를 기록하지 않아 다음 실행에 다시 한다
         self.R = {r["slug"]: r for r in rows()}
         self.t = {}          # 단계별 누적 실행 시간(초)
         self.n = {}          # 단계별 실행 수(scene/sig 는 후보 수)
@@ -97,10 +101,19 @@ class Run:
         if stage == "final":
             return h(code_key("final"), fh(d / "2_refine.json"), sig_of(w), sig_of(str(det) + ".scores.npy"), sig_of(str(det) + ".vocal.json"))
         if stage == "scene":
-            return h(code_key("scene"), fh(d / "3_final.json"), sig_of(ROOT / "cache/scene_pool.npz"))
+            return h(code_key("scene"), fh(d / "3_final.json"), *self.pool_sigs(), self.vis_cal())
         if stage == "route":
             return h(code_key("route"), fh(d / "4_scene.json"), registry_for(s), sig_of(ROOT / "cache/exp12p/other.json"), code_key("sig"), fh(ROOT / "n_visual_cal.json"))
         raise KeyError(stage)
+
+    def pool_sigs(self):
+        """scene_pool.pool() 이 읽는 파일 전부(프레임 npz, 메타 json, 추가 참조 npz/json, 날짜용 refs.json)의 서명"""
+        return [sig_of(ROOT / p) for p in ("cache/scene_pool.npz", "cache/scene_pool.json", "cache/scene_pool_refs.npz", "cache/scene_pool_refs.json", "data/refs.json")]
+
+    def vis_cal(self):
+        """vis 점수를 바꾸는 보정(mu, sd)만. 임계 thr 은 route 단계에서만 쓰므로 빠진다(thr 만 바뀌면 NAS 를 다시 읽지 않는다)"""
+        c = json.load(open(ROOT / "n_visual_cal.json", encoding="utf8")) if (ROOT / "n_visual_cal.json").exists() else {}
+        return h(c.get("mu"), c.get("sd"))
 
     def plan(self, slugs):
         """슬러그별로 stale 인 단계 목록. 앞 단계가 stale 면 뒤 단계도 stale 로 본다(실행해 보면 결과가 같을 수 있으나 키로는 모름)."""
@@ -133,7 +146,7 @@ class Run:
         t0 = time.perf_counter()
         d = self.root / s
         old = json.load(open(d / "4_scene.json", encoding="utf8")) if (d / "4_scene.json").exists() else dict(has_refs=False, segs=[])
-        ck = h(code_key("scene"), sig_of(ROOT / "cache/scene_pool.npz"), fh(ROOT / "n_visual_cal.json"))
+        ck = h(code_key("scene"), *self.pool_sigs(), fh(ROOT / "n_visual_cal.json"))
         # scene_fn 이 있는 실사용에서는 scene 코드/풀이 지난 실행과 같을 때만 후보를 재사용한다(black_max 같은 임계나 풀이 바뀌면 같은 경계라도 multi 가 달라질 수 있어 전부 다시 읽는다).
         # scene_fn 이 없는 점검용(check.py)은 예전처럼 항상 재사용/근사
         reuse = self.scene_fn is None or self.M.get(s, {}).get("scene_in") == ck
@@ -156,7 +169,9 @@ class Run:
             new.append(g)
         if self.vis_fn:
             self.vis_fn(s, new)                                    # 재사용한 후보는 vis 가 이미 있어 건너뛰고, 새/바뀐 후보만 프레임을 읽는다
-        (d / "4_scene.json").write_text(json.dumps(dict(has_refs=old["has_refs"], segs=new), ensure_ascii=False, indent=1), encoding="utf8")
+        if self.vis_fn and any(g.get("vis") is None for g in new):
+            self.partial.add(s)                                    # 건너뛴(의존성 없음) 또는 못 읽은 후보가 있으면 완료로 기록하지 않는다
+        (d / "4_scene.json").write_text(json.dumps(dict(has_refs=self.refs_fn(s) if self.refs_fn else old["has_refs"], segs=new), ensure_ascii=False, indent=1), encoding="utf8")
         self.M.setdefault(s, {})["scene_in"] = ck                  # 쓰기까지 끝낸 뒤에만 기록(중간 실패 때 옛 값이 새 코드 기준으로 보이지 않게)
         self._tick("scene", t0, redo)
         return redo
@@ -166,7 +181,7 @@ class Run:
         import n_signals
         f = self.root / s / "sig.json"
         C = json.load(open(f)) if f.exists() else {}
-        ck = h(code_key("sig"), sig_of(self.wav(s)))
+        ck = h(code_key("sig"), sig_of(self.wav(s)), sig_of(str(ROOT / "cache/detect" / self.wav(s).stem) + ".scores.npy"))      # n_signals 가 읽는 점수 npy 가 바뀌면 캐시도 무효
         if C.get("_ck") != ck:
             C = {"_ck": ck}
         todo = []
@@ -217,9 +232,12 @@ class Run:
                     self.scene(s)
                 if "route" in st or "route" in force:
                     self.route(s)
-                self.M[s] = {**self.M.get(s, {}), **{k: self.key(k, s) for k in ("final", "scene", "route")}}
+                done = ("final",) if s in self.partial else ("final", "scene", "route")
+                self.M[s] = {**self.M.get(s, {}), **{k: self.key(k, s) for k in done}}
         finally:                                                  # 중간에 NasDown 등으로 멈춰도 끝낸 방송은 기록한다(못 끝낸 방송은 키가 안 맞아 다음에 다시 계산)
-            self.mf.write_text(json.dumps(self.M, indent=1))
+            tmp = self.mf.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(self.M, indent=1))
+            os.replace(tmp, self.mf)                              # 쓰다 중단돼도 옛 기록이 그대로(깨진 JSON 이 남지 않게)
         return P
 
 
@@ -240,6 +258,11 @@ def selftest():
     assert r.scene("x") == 2 and calls == [0.0, 300.5]              # 처음(기록 없음)에는 전부 다시 읽는다
     calls.clear(); (root / "x" / "3_final.json").write_text(json.dumps([seg(0.0), seg(301.0)]))
     assert r.scene("x") == 1 and calls == [301.0]                    # 같은 코드/풀: 경계가 같은 후보는 재사용
+    assert "x" not in r.partial                                      # vis_fn 이 없으면 완료
+    r.vis_fn = lambda slug, segs: None; r.scene("x")
+    assert "x" in r.partial                                          # vis 가 비면(의존성 없음/읽기 실패) 완료로 기록하지 않는다
+    r.partial.clear(); r.vis_fn = lambda slug, segs: [g.update(vis=0.1) for g in segs]; r.scene("x")
+    assert "x" not in r.partial
     r.M["x"]["scene_in"] = "다른키"; calls.clear()
     assert r.scene("x") == 2 and len(calls) == 2                     # 코드/풀이 바뀌면 같은 경계도 전부 다시
     print("selftest ok")

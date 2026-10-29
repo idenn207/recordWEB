@@ -84,7 +84,7 @@ def step_drift(accept=False):
     old = json.load(open(ACC / "cards.json", encoding="utf8"))
     ra = [(c["tier"], c["likely"], c["weak"], c["tier_why"]) for c in old]
     rb = [(c["tier"], c["likely"], c["weak"], c["tier_why"]) for c in cur]
-    rep = SD.diff(old, cur, ra, rb, labels(cur))
+    rep = SD.diff(old, cur, ra, rb, labels(cur), labels(old))
     mv = [k for k, v in rep["transitions"].items() if k.split("->")[0] != k.split("->")[1]]
     msg = f"기준 대비 바뀐 후보 {len(rep['changed'])}, 경계 이동(1초 초과) {len(rep['moved'])}, 이탈 {len(rep['violations'])}" + (f" 등급 이동 {mv}" if mv else "") + f" (재계산 단계 {sum(len(v) for v in P.values())}개)"
     for v in rep["violations"][:5]:

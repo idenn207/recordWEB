@@ -9,12 +9,9 @@ import numpy as np
 _C = {}
 
 
-def real_scene_fn(slug, g, stats=None):
+def _pool(slug):
+    """(라이브 풀, N 풀, 같은 채널 기준 프레임 또는 None). 방송 날짜/채널이 같은 곡은 뺀다. 슬러그마다 한 번만 만든다."""
     import scene_pool
-    from scene import nas_thumbs, dist
-    from scene_multi import classify, feats
-    sys.path.insert(0, str(ROOT / "datasets"))
-    import nas_ingest as N
     R = next(r for r in rows() if r["slug"] == slug)
     if slug not in _C:
         meta, F = scene_pool.pool()
@@ -24,7 +21,21 @@ def real_scene_fn(slug, g, stats=None):
         LIVEP, NEGP = (scene_pool.cat(meta, F, keep)[x] for x in ("live", "neg"))
         Rf = scene_pool.cat(meta, F, lambda m: keep(m) and m["name"] == name)["live"] if name and scene_pool.eligible(meta, name, keep) else None
         _C[slug] = (LIVEP, NEGP, Rf)
-    LIVEP, NEGP, Rf = _C[slug]
+    return _C[slug]
+
+
+def real_has_refs(slug):
+    """현재 풀로 본 has_refs(채널 승인 이력이 충분한가). pipeline.main 의 R is not None 과 같은 기준: manifest 가 이전 4_scene 값을 그대로 두지 않게(풀이 늘어난 채널)"""
+    return _pool(slug)[2] is not None
+
+
+def real_scene_fn(slug, g, stats=None):
+    from scene import nas_thumbs, dist
+    from scene_multi import classify, feats
+    sys.path.insert(0, str(ROOT / "datasets"))
+    import nas_ingest as N
+    R = next(r for r in rows() if r["slug"] == slug)
+    LIVEP, NEGP, Rf = _pool(slug)
     t = time.perf_counter()
     fr = nas_thumbs(N.url_of(R["path"]), g["start"], g["end"])      # 401/읽기 실패면 scene.NasDown (조용히 None 이 저장되지 않게)
     dt = time.perf_counter() - t

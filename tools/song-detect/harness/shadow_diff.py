@@ -34,8 +34,8 @@ def match(ca, cb):
     return out
 
 
-def diff(ca, cb, ra, rb, lab_b):
-    """ra, rb = [(tier, likely, weak, why)] , lab_b = B 카드별 라벨. 반환 dict(리포트)"""
+def diff(ca, cb, ra, rb, lab_b, lab_a=None):
+    """ra, rb = [(tier, likely, weak, why)] , lab_b = B 카드별 라벨, lab_a = A 카드별 라벨(주면 B 에 대응 카드가 없는 승인 라이브 A 카드를 이탈로 센다). 반환 dict(리포트)"""
     mt = match(ca, cb)
     trans, chg, viol, moved = {}, [], [], []
     for j, i in enumerate(mt):
@@ -56,6 +56,10 @@ def diff(ca, cb, ra, rb, lab_b):
                 moved.append(dict(slug=cb[j]["slug"], start=round(s1), lab=lab_b[j], ds=round(s1 - s0, 1), de=round(e1 - e0, 1), why=("A: " + (ca[i]["boundary"].get("why_snap") or "-"))[:60]))
             if lab_b[j] in ("L", "B") and max(abs(s1 - s0), abs(e1 - e0)) > 2:
                 viol.append(dict(slug=cb[j]["slug"], start=round(s1), lab=lab_b[j], kind="승인 곡 경계 이동", a=f"{s0:.1f}-{e0:.1f}", b=f"{s1:.1f}-{e1:.1f}", why=""))
+    seen = {i for i in mt if i is not None}
+    for i in range(len(ca)):
+        if lab_a and i not in seen and lab_a[i] in ("L", "B") and vis(ra[i][0], ra[i][2]) > 0:      # 노출되던 승인 라이브 카드가 B 에서 통째로 사라짐
+            viol.append(dict(slug=ca[i]["slug"], start=round(ca[i]["start"]), lab=lab_a[i], kind="승인 라이브 카드 사라짐", a=f"{ra[i][0]}", b="(없음)", why=""))
     lost_a = sum(i is None for i in mt)
     return dict(transitions=trans, changed=chg, violations=viol, moved=moved, new_in_b=lost_a, n_a=len(ca), n_b=len(cb))
 
@@ -115,7 +119,7 @@ def main(argv=None):
     else:
         print("--set 또는 --root-a/--root-b 가 필요", file=sys.stderr)
         return 2
-    rep = diff(ca, cb, ra, rb, lb)
+    rep = diff(ca, cb, ra, rb, lb, la)
     sm = summary(ca, cb, ra, rb, la, lb)
     print(render(rep, sm))
     if a.json:
@@ -133,6 +137,9 @@ def selftest():
     assert len(rep["violations"]) == 1 and rep["violations"][0]["kind"] == "승인 라이브 노출 하락", rep
     rep = diff(ca, cb, ra, ra, ["L", "N"])
     assert not rep["violations"] and not rep["changed"]
+    rep = diff([c(0, 100)], [], ra[:1], [], [], ["L"])                  # B 에 대응 카드가 없는 노출 승인 라이브 A 카드 = 이탈
+    assert [v["kind"] for v in rep["violations"]] == ["승인 라이브 카드 사라짐"], rep
+    assert not diff([c(0, 100)], [], [("drop", False, False, "")], [], [], ["L"])["violations"]      # 원래 안 보이던 카드는 아님
     print("selftest ok")
 
 

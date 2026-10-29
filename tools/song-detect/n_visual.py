@@ -97,6 +97,10 @@ def fill(segs, src):
     miss = sum(g.get("vis") is None for g in todo)
     if miss:
         print(f"n_visual: 프레임을 못 읽어 화면 신호가 없는 후보 {miss}/{len(todo)}", file=sys.stderr)
+    import nas_auth
+    if miss == len(todo) and str(src).startswith(nas_auth.HOST):      # NAS 에서 전부 못 읽음 = 세션 만료(401)나 NAS 중단: scene.nas_thumbs 처럼 중단해 vis 없는 결과가 정상으로 저장되지 않게(로그인은 시도하지 않음)
+        from scene import NasDown
+        raise NasDown(f"n_visual: NAS 프레임 {miss}/{len(todo)} 후보 전부 읽기 실패(세션 만료이거나 NAS 중단)")
 
 
 def fire(g, c=None):
@@ -113,4 +117,14 @@ if __name__ == "__main__":
         c = cal()
         assert fire({"vis": c["thr"] + 0.01}, c) and fire({"vis": c["thr"]}, c) == [] and fire({"vis": None}, c) is None
         assert abs(vis_of(c["mu"], c)) < 1e-9                       # 평균 입력 -> 점수 0
+    if CAL.exists():                                                  # NAS 에서 전부 못 읽으면 NasDown(vis 없는 결과가 정상으로 저장되지 않게), 로컬은 건너뜀
+        import nas_auth
+        from unittest import mock
+        g = lambda: [dict(keep=True, start=0.0, end=100.0)]
+        with mock.patch.object(sys.modules[__name__], "_load", lambda: None), mock.patch.object(sys.modules[__name__], "frames_of", lambda *a, **k: []):
+            fill(g(), "C:/local.mp4")
+            try:
+                fill(g(), nas_auth.HOST + "/api/files/download?path=x"); raise SystemExit("NasDown 이 나야 한다")
+            except RuntimeError as e:
+                assert "NasDown" in type(e).__name__
     print("ok")
