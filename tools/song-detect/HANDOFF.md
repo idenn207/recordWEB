@@ -550,7 +550,7 @@ Dockerfile 의 COPY 에 `limits.py` 를 넣었지만 마운트가 코드를 덮�
 
 ## 31. 리뷰 반영 (2026-10-29, 브랜치 proto/sd-integrate) - 항목별 판정은 experiments_log/integration.md 9절
 
-세 리뷰(통계, codex, 도메인 메모)의 finding 17개를 직접 재현해 판정했다(재현 안 된 것 없음). 요약:
+세 리뷰(통계 A1~A7, codex B0 + 재실행 결과 B1~B9, 도메인 메모 C1~C10)의 finding 27개를 직접 재현해 판정했다(재현 안 된 것 없음). 요약:
 - 문서 정정: 메모 감사 이득은 표본 내(사용자 정답 행/에이전트 audio 행 분리), n_visual 이득은 구간 [0, 7]곡, "모든 조건에서 0" 은 m=0.1 한정(m=0.0 에서 +1), A 지표 정의를 배포 경로 11/55 로 고정(오디오만 14, 프로토 프레임 12 는 이름 바꿔 병기), "246곡" 은 고유 218 이하.
 - 도구/게이트: `integ_holdout.py eval` 이 배포 경로 vis(4_scene) 표를 머리로 + 임계 민감도, `integ_boot.py`(스트리머 부트스트랩), `golden_gate.py` recall 게이트(승인 구간 중 keep 이 50% 못 덮는 것의 기준선 8개), `memo_audit.EXISTS` 에 #33 추가 + `check.py` 가 허용 목록 {64, 33} 외의 새 실패 차단, `clip_banner.py`('클립 금지' 문구 클립 목록).
 - 코드: `make_final.lead_pad(settle=)` 를 auto 가 아닌 곡에만 켜 mary 10-23 #1 시작이 큰 잡음 위인 결함을 고쳤다(62클립 중 2곡만 움직임, auto 불변, 두 클립만 재생성, 이전 클립은 `out/stale_v6`). golden 화이트리스트 사유와 15761307@2703 시작 정답(두 곡을 묶은 재생목록 항목)을 바로잡았다. 자체 검수 #111 을 ok -> soundcheck 로 정정.
