@@ -145,11 +145,21 @@ def pick(pcm, a, ref, t0, t1, ok):
     return None, None, [[round(x, 2), round(y, 2)] for x, y in G]
 
 
-def lead_pad(pcm, a, ref, s):
+SETTLE_DB = 10.0         # 음성 없음 공백의 컷 안정화: 곡 중앙값보다 이만큼 작아진 첫 프레임까지 컷을 늦춘다(settle)
+
+
+def lead_pad(pcm, a, ref, s, settle=False):
     """시작 여유: s 앞 PAD_WIN 초에서 마지막 말소리 뒤의 공백(무음 우선, 없으면 음성 없음) 중 가장 긴 것의 시작+PAD_EDGE 를 클립 시작으로(0.3초 미만이면 s). (시작, 기록)
-    shortcut: 앞 곡 소리 조각은 말소리(Speech)와 음성 없음 판정의 Singing 으로만 가려낸다, MR 카운트인/숨소리는 곡 쪽 소리로 허용."""
+    settle=True 이고 음성 없음 공백이면: 컷 직후가 말/박수 꼬리(곡 중앙값-SETTLE_DB 이상의 큰 소리)이고 그 뒤 곡 시작까지 줄곧 조용하면(중앙값 < 곡 중앙값-SETTLE_DB) 처음 조용해지는 프레임으로 컷을 늦춘다(mary 10-23 #1, toa 10-24 #9: 시작이 큰 잡음 한가운데). 곡 소리가 이어지는 공백(음악 사이 짧은 dip 포함)은 그대로.
+    shortcut: 앞 곡 소리 조각은 말소리(Speech)와 음성 없음 판정의 Singing 으로만 가려낸다, MR 카운트인/숨소리는 곡 쪽 소리로 허용. settle 은 승인(auto) 컷을 안 움직이려고 auto 가 아닌 곡에만 쓴다(사례 2곡, 늘리려면 golden/메모 게이트로)."""
     best, kind, G = pick(pcm, a, ref, s - PAD_WIN, s, lambda g, spk: g[0] > (float(spk.max()) if len(spk) else -1e9))
     cut = min(best[0] + PAD_EDGE, s) if best else s
+    if settle and kind == "free" and cut < s:
+        from snap import rms_db
+        ts, db = rms_db(pcm, cut, s)
+        i = int(np.argmax(db < ref - SETTLE_DB))
+        if i > 0 and np.median(db[i:]) < ref - SETTLE_DB:                # 처음이 큰 소리이고 그 뒤 곡 시작까지 조용하다(곡 소리가 이어지다 잠깐 작아지는 공백은 제외)
+            cut = float(ts[i])
     return cut, dict(gaps=G, chosen=[round(best[0], 2), round(best[1], 2)] if best else None, kind=kind, pad=round(s - cut, 2))
 
 
@@ -209,7 +219,7 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ct
         mv(st, "snap_quiet", "start", s, s2)
         mv(st, "snap_quiet", "end", e, e2)
         s, e = s2, e2
-        cs, lead = lead_pad(pcm, a, ref, s)
+        cs, lead = lead_pad(pcm, a, ref, s, settle=tier != "auto")
         ce, trail = trail_pad(pcm, a, ref, e)
         mv(st, "lead_pad", "start", s, cs)
         mv(st, "trail_pad", "end", e, ce)
@@ -312,6 +322,12 @@ def selftest():
     pcm[SR * 10:] = 10                                       # 곡 끝 뒤가 들리지 않을 만큼 작으면(-70dB) 말 점수가 높아도 +1.0초 유지
     assert tail_cut(pcm, a, -20.0, 10.0, 10.0) == 11.0
     assert stages_of({}, [1]) == [1] and stages_of({"boundary": {"stages": [0]}}, [1]) == [0, 1]
+    pm, ref = np.full(SR * 20, 3000, np.int16), 20 * np.log10(3000 / 32768)
+    pm[int(SR * 8.4):SR * 10] = 237                           # 8.0~8.4 큰 잡음 뒤 곡 시작(10초)까지 조용(곡 중앙값-22dB): settle 은 잡음이 끝난 뒤(8.4 근처)로 컷을 늦춘다
+    z = np.zeros((40, 3), np.float32)
+    assert abs(lead_pad(pm, z, ref, 10.0)[0] - 8.05) < 1e-9 and 8.4 <= lead_pad(pm, z, ref, 10.0, settle=True)[0] < 8.6
+    pm[int(SR * 8.4):SR * 10] = 3000; pm[int(SR * 8.9):int(SR * 9.1)] = 100   # 곡 소리가 이어지다 잠깐 작아지는 공백은 그대로
+    assert lead_pad(pm, z, ref, 10.0, settle=True)[0] == lead_pad(pm, z, ref, 10.0)[0]
     print("selftest ok")
 
 
