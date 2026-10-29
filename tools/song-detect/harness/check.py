@@ -15,16 +15,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from harness.lib import *
 
 PY = sys.executable
+ENV = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")          # 자식 출력과 부모 디코딩을 UTF-8 로 통일: 콘솔 인코딩(cp949 등)이 달라도 한국어 출력 디코딩이 예외로 죽지 않게(리뷰 B-5)
+RUN = dict(capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT)
 SELF = [("selftest-route", [PY, "test_route.py"]), ("selftest-detect", [PY, "test_detect.py"]), ("selftest-snap", [PY, "snap.py", "selftest"]), ("selftest-finalize", [PY, "finalize.py", "selftest"]),
         ("selftest-make_final", [PY, "make_final.py", "selftest"]), ("selftest-pipeline", [PY, "pipeline.py", "selftest"]), ("selftest-manifest", [PY, "harness/manifest.py", "selftest"]),
-        ("selftest-shadow", [PY, "harness/shadow_diff.py", "selftest"]), ("selftest-memo", [PY, "experiments/memo_audit.py", "selftest"]), ("selftest-tune", [PY, "tune.py"]), ("selftest-n_visual", [PY, "n_visual.py"]), ("selftest-holdout", [PY, "experiments/integ_holdout.py", "selftest"])]
+        ("selftest-shadow", [PY, "harness/shadow_diff.py", "selftest"]), ("selftest-memo", [PY, "experiments/memo_audit.py", "selftest"]), ("selftest-tune", [PY, "tune.py"]), ("selftest-n_visual", [PY, "n_visual.py"]), ("selftest-holdout", [PY, "experiments/integ_holdout.py", "selftest"]), ("selftest-check", [PY, "harness/check.py", "--selftest"])]
 ACC = PH / "check_accepted"
 GS = PH / "golden_scene"      # --rescene 스크래치
 WAIVED_EXISTS = {64, 33}      # 64 데뷔방송 앞 5분 예외, 33 등록부 N 로 막힌 회복 가능 곡: 둘 다 못 맞추는 상태를 알고 허용한다(HANDOFF 31절)
 
 
 def sh(cmd, timeout=900):
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT, timeout=timeout)
+    r = subprocess.run(cmd, timeout=timeout, env=ENV, **RUN)
     return r.returncode, (r.stdout + r.stderr)
 
 
@@ -50,7 +52,7 @@ def rescene_golden():
         shutil.rmtree(d, ignore_errors=True); d.mkdir(parents=True)
         for f in STAGE_FILES[:3]:
             shutil.copy(ROOT / "out" / v / f, d / f)
-        r = subprocess.run([PY, "pipeline.py", f"data/vod/{v}.wav", "--id", v, "--out", str(GS)], capture_output=True, text=True, cwd=ROOT, timeout=3600, env=dict(os.environ, SONG_NOCLIP="1"))
+        r = subprocess.run([PY, "pipeline.py", f"data/vod/{v}.wav", "--id", v, "--out", str(GS)], timeout=3600, env=dict(ENV, SONG_NOCLIP="1"), **RUN)
         assert r.returncode == 0, f"{v}: pipeline 장면 단계 실패 {r.stderr.strip()[-150:]}"
         a, b = blank(d / "4_scene.json"), blank(ROOT / "out" / v / "4_scene.json")
         assert a <= b + 2, f"{v}: 프레임을 못 읽은 후보가 저장본 {b}개에서 {a}개로 늘었다(네트워크 확인)"
@@ -87,7 +89,7 @@ def step_memo():
 
 def step_logo(accept=False):
     """배포 규칙의 blind9 N 노출을 '곡 집합'으로 저장본(ACC/logo_sets.json)과 비교한다: 새로 노출된 N 곡과 라이브 손실만 이탈로 세고, 개수는 보고만 한다(임계 근처 N 몇 곡 때문에 개수 단언은 거짓 실패/개선을 냈다, 리뷰 A2-6).
-    집합 둘: 오디오+구조 규칙(logo_route 의 배포 규칙, 신호 표) / 거기에 화면(integ_holdout 의 배포 경로 vis)을 얹은 것. 저장본이 없거나 --accept 면 현재 집합을 저장."""
+    집합 둘: 오디오+구조 규칙(logo_route 의 배포 규칙, 신호 표) / 거기에 화면(integ_holdout 의 배포 경로 vis)을 얹은 것. --accept 일 때만 현재 집합을 저장(라이브 손실이 있으면 저장 거부, 저장본이 없으면 실패)."""
     rc, out = sh([PY, "experiments/logo_route.py", "eval", "--by", "group", "--boot", "200", "--out", str(PH / "logo_check.json")])
     import re
     m = re.search(r"배포 규칙 표본 내.*?blind9: N 노출 (\d+)/(\d+) 라이브 걸림 (\d+)/(\d+)", out)
@@ -101,14 +103,18 @@ def step_logo(accept=False):
     k, lost_all = o["blind9"]["keys"], o["전체"]["keys"]["lost"]                  # 전체 = 라이브 풀 136(golden 라이브 포함): golden_gate 가 못 보는 weak/vis 로 인한 승인 라이브 손실도 여기서 센다
     f, ne = ACC / "logo_sets.json", int(m[1])
     assert ne == len(k["A"]), f"logo_route({ne})와 integ_holdout({len(k['A'])})의 배포 규칙 노출이 다르다"
-    if accept or not f.exists():
+    if int(m[3]) or k["lost"] or lost_all:                                           # 라이브 손실은 저장본 유무와 --accept 와 무관하게 이탈이고, 손실이 있는 상태를 기준으로 저장하지 않는다(리뷰 B-1)
+        return False, f"라이브 손실: blind9 걸림 {m[3]}/{m[4]}, 화면 포함 {k['lost']}, 라이브 풀 136 전체 {lost_all} (기준 저장 안 함)"
+    if accept:
         ACC.mkdir(exist_ok=True)
         json.dump(k, open(f, "w", encoding="utf8"), ensure_ascii=False, indent=1)
         return True, f"기준 저장: 노출 오디오만 {len(k['A'])}, + 화면 {len(k['A_vis'])}, 라이브 걸림 {m[3]}/{m[4]}, 화면 포함 라이브 손실 {len(k['lost'])}"
+    if not f.exists():                                                               # 저장본이 없으면 새 노출 N 비교가 빈 검사가 된다: 조용히 만들지 않고 명시적 초기화를 요구
+        return False, f"저장본 {f.name} 없음: python harness/check.py --accept 로 초기화"
     old = json.load(open(f, encoding="utf8"))
     new = {s: sorted(set(k[s]) - set(old[s])) for s in ("A", "A_vis")}
     gone = {s: sorted(set(old[s]) - set(k[s])) for s in ("A", "A_vis")}
-    ok = int(m[3]) == 0 and not k["lost"] and not lost_all and not new["A"] and not new["A_vis"]
+    ok = not new["A"] and not new["A_vis"]
     msg = f"배포 규칙 blind9 N 노출 오디오만 {len(k['A'])}/{m[2]} (저장본 {len(old['A'])}), + 화면(4_scene vis) {len(k['A_vis'])}/{m[2]} (저장본 {len(old['A_vis'])}) 라이브 걸림 {m[3]}/{m[4]}, 화면 포함 라이브 손실 {len(k['lost'])} (라이브 풀 136 전체 {len(lost_all)}), 규칙 A 재현"
     if new["A"] or new["A_vis"]:
         msg += f" | 새로 노출된 N 오디오만 {new['A']} 화면포함 {new['A_vis']}"
@@ -139,6 +145,24 @@ def step_drift(accept=False):
     return not rep["violations"], msg
 
 
+def selftest():
+    """step_logo 의 라이브 손실/저장본 규칙(리뷰 B-1)을 가짜 평가 값으로 확인한다"""
+    import tempfile
+    from unittest.mock import patch
+    sys.path.insert(0, str(ROOT / "experiments"))
+    import integ_holdout as IH
+    me = sys.modules[__name__]
+    ev = lambda lost: {"blind9": dict(keys=dict(A=["n"], A_vis=["n"], lost=lost)), "전체": dict(keys=dict(lost=lost))}
+
+    def logo(lost, acc, accept=False):
+        with patch.object(me, "ACC", acc), patch.object(me, "sh", return_value=(0, "배포 규칙 표본 내 blind9: N 노출 1/55 라이브 걸림 0/49")), patch.object(IH, "evaluate", return_value=ev(lost)):
+            return step_logo(accept)[0]
+    acc = Path(tempfile.mkdtemp())
+    assert not logo(["L"], acc) and not logo(["L"], acc, True) and not (acc / "logo_sets.json").exists()     # 라이브 손실: 저장본이 없어도 --accept 여도 실패하고 저장하지 않는다
+    assert not logo([], acc) and logo([], acc, True) and logo([], acc) and not logo(["L"], acc)              # 저장본 없음은 실패, --accept 로 초기화하면 통과, 이후 손실이 생기면 다시 실패
+    print("ok")
+
+
 STEPS = dict(selftest=step_selftest, golden=step_golden, memo=step_memo, logo=step_logo, drift=step_drift)
 
 
@@ -153,6 +177,7 @@ def child(name):
 
 
 def main():
+    sys.stdout.reconfigure(errors="replace")                                # 콘솔 인코딩이 못 쓰는 글자가 자식 출력에 있어도 요약 표 출력이 죽지 않게
     fast = "--fast" in sys.argv
     names = [n for n in STEPS if not (fast and n in ("memo", "logo"))]
     if "--accept" in sys.argv:
@@ -160,11 +185,11 @@ def main():
     t0 = time.perf_counter()
 
     def go(n):
-        r = subprocess.run([PY, str(Path(__file__)), "--step", n] + [o for o in ("--accept", "--rescene") if o in sys.argv], capture_output=True, text=True, cwd=ROOT, timeout=3600)
+        r = subprocess.run([PY, str(Path(__file__)), "--step", n] + [o for o in ("--accept", "--rescene") if o in sys.argv], timeout=3600, env=ENV, **RUN)
         try:
             return json.loads(r.stdout.strip().splitlines()[-1])
         except Exception:
-            return dict(step=n, status="error", msg=(r.stderr or r.stdout)[-200:], sec=0)
+            return dict(step=n, status="error", msg=(r.stderr or r.stdout or "")[-200:], sec=0)
     with ThreadPoolExecutor(len(names)) as ex:
         res = list(ex.map(go, names))
     wall = time.perf_counter() - t0
@@ -178,7 +203,9 @@ def main():
 
 
 if __name__ == "__main__":
-    if "--step" in sys.argv:
+    if "--selftest" in sys.argv:
+        selftest()
+    elif "--step" in sys.argv:
         child(sys.argv[sys.argv.index("--step") + 1])
     else:
         sys.exit(main())

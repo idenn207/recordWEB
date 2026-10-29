@@ -99,7 +99,7 @@ def with_golden(df):
     import n_signals, loso_n
     from loso_signals import audio_feats
     from scene_multi import P as MP
-    rows = []
+    rows, miss = [], []
     for s in json.load(open("experiments/golden_v4.json", encoding="utf8"))["songs"]:
         a, b = s["frozen"]["s"], s["frozen"]["e"]
         if ((df.vno == s["vid"]) & (np.minimum(df.start + df.len, b) - np.maximum(df.start, a) > 0.5 * (b - a))).any():
@@ -107,7 +107,9 @@ def with_golden(df):
         seg = [dict(keep=True, start=a, end=b)]
         wav = Path(f"data/vod/nas/{s['vid']}.wav") if s["vid"].startswith("20") else Path(f"data/vod/{s['vid']}.wav")
         n_signals.fill(seg, wav)
-        if seg[0].get("bursts") is not None:
+        if seg[0].get("bursts") is None:
+            miss.append(s["id"])
+        else:
             g, has_refs = golden_scene(s)
             g = dict(g, weak=False, tier=None)
             mu = "unknown" if g.get("multi") == "watch" and (g.get("tstd") or 0) > MP["motion"] else g.get("multi")      # build() 와 같은 구조 규칙 판정(움직임 임계 해제)
@@ -118,6 +120,7 @@ def with_golden(df):
                              tstd=g.get("tstd"), blk=g.get("blk"), speech=g.get("speech"), scene=g.get("scene"), multi=g.get("multi") or "", has_refs=int(bool(has_refs)),
                              struct_cls=loso_n.cls(t2, False), struct_why=why2, base_cls="review",
                              **{k: f[k] for k in ("sing", "speech_frac", "music", "sing_std", "sp_mid_frac", "nospeech_max_frac", "ctx_speech")}, bursts_per_min=seg[0]["bursts"], rel_db=seg[0]["rel_db"]))
+    assert not miss, f"golden 라이브 {len(miss)}행이 점수 캐시/wav 가 없어 빠진다(조용히 빠지면 라이브 풀 136 검사가 빈 집합으로 통과한다, 리뷰 B-2): {miss[:5]}"
     return pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
 
 
