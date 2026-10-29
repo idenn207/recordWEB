@@ -5,7 +5,7 @@
   python harness/check.py --step 이름  단계 하나만(내부용, 마지막 줄이 JSON)
 종료코드: 0 전부 통과 / 1 게이트 실패(승인 라이브 이탈, 메모 감사 퇴행, logo_route 퇴행, 테스트 실패, 변화 리포트 이탈) / 2 점검 자체 오류(단계가 예외로 죽음, 파일 없음).
 게이트 기준: golden 이탈 0 / 메모 감사 hit@0.5,3,10 · 방향 통과 · 경계 좋음 유지가 저장본(memo_audit_baseline.json) 이상, 곡 사라짐 0, 길이 오차>5초 곡이 저장본 이하 /
- logo_route 가 규칙 A 재현(노출 23/weak 22/drop 10)과 배포 규칙 라이브 걸림 0 을 assert 하고, 배포 규칙 blind9 N 노출이 14 이하 / 변화 리포트: 승인 라이브 노출 하락, N 이 auto 로, 승인 곡 경계 2초 초과 이동 없음.
+ logo_route 가 규칙 A 재현(노출 23/weak 22/drop 10)과 배포 규칙 라이브 걸림 0 을 assert 하고, 배포 규칙 blind9 N 노출이 오디오만 14 이하 + 화면(integ_holdout eval 의 배포 경로 vis) 11 이하(라이브 손실 0) / 변화 리포트: 승인 라이브 노출 하락, N 이 auto 로, 승인 곡 경계 2초 초과 이동 없음.
 출력 요약은 cache/proto_harness/check_last.json 에도 저장(CI 아티팩트용).
 shortcut: 변화 리포트의 기준 스냅샷은 cache/proto_harness/check_accepted(첫 실행 때 자동 승인), 라벨은 NAS 10월 191후보뿐이라 다른 방송 세트는 golden 이 맡는다."""
 import json, os, subprocess, sys, time
@@ -18,6 +18,7 @@ SELF = [("selftest-route", [PY, "test_route.py"]), ("selftest-detect", [PY, "tes
         ("selftest-make_final", [PY, "make_final.py", "selftest"]), ("selftest-pipeline", [PY, "pipeline.py", "selftest"]), ("selftest-manifest", [PY, "harness/manifest.py", "selftest"]),
         ("selftest-shadow", [PY, "harness/shadow_diff.py", "selftest"]), ("selftest-memo", [PY, "experiments/memo_audit.py", "selftest"]), ("selftest-tune", [PY, "tune.py"]), ("selftest-n_visual", [PY, "n_visual.py"])]
 ACC = PH / "check_accepted"
+WAIVED_EXISTS = {64, 33}      # 64 데뷔방송 앞 5분 예외, 33 등록부 N 로 막힌 회복 가능 곡: 둘 다 못 맞추는 상태를 알고 허용한다(HANDOFF 31절)
 
 
 def sh(cmd, timeout=900):
@@ -36,8 +37,8 @@ def step_selftest():
 
 def step_golden():
     rc, out = sh([PY, "experiments/golden_gate.py"])
-    line = [l for l in out.splitlines() if l.startswith("golden ")]
-    return rc == 0, (line[-1] if line else out.strip()[-120:])
+    line = [l for l in out.splitlines() if l.startswith(("golden ", "recall "))]
+    return rc == 0, ("  ".join(line) if line else out.strip()[-120:])
 
 
 def step_memo():
@@ -49,7 +50,10 @@ def step_memo():
     fails = [k for k in ("hit@0.5", "hit@3", "hit@10", "dir_pass", "ok_pass", "asym_pass") if s[k] < b[k]] + [k for k in ("vanished", "len_err_gt5") if s[k] > b[k]]
     if s["ok_pass"] != s["ok_n"]:
         fails.append("ok_pass<ok_n")
-    return not fails, f"hit@0.5/3/10 {s['hit@0.5']}/{s['hit@3']}/{s['hit@10']} (저장본 {b['hit@0.5']}/{b['hit@3']}/{b['hit@10']}) 방향 {s['dir_pass']}/{s['dir_n']} 좋음유지 {s['ok_pass']}/{s['ok_n']} 사라짐 {s['vanished']} 길이>5초 {s['len_err_gt5']}" + (f" 퇴행 {fails}" if fails else "")
+    ex = [e["n"] for e in M.exists(exp) if not e["ok"]]                  # 메모가 '곡이 있어야 한다'고 한 구간이 drop 이면 실패. 아래 둘은 사용자 결정 대기라 지금은 허용(memo_audit.EXISTS 주석)
+    if set(ex) - WAIVED_EXISTS:
+        fails.append(f"exists 새 실패 {sorted(set(ex) - WAIVED_EXISTS)}")
+    return not fails, f"hit@0.5/3/10 {s['hit@0.5']}/{s['hit@3']}/{s['hit@10']} (저장본 {b['hit@0.5']}/{b['hit@3']}/{b['hit@10']}) 방향 {s['dir_pass']}/{s['dir_n']} 좋음유지 {s['ok_pass']}/{s['ok_n']} 사라짐 {s['vanished']} 길이>5초 {s['len_err_gt5']} exists 실패(허용) {ex}" + (f" 퇴행 {fails}" if fails else "")
 
 
 def step_logo():
@@ -59,7 +63,11 @@ def step_logo():
     if rc or not m:
         return False, ("logo_route 실패(규칙 A 재현 또는 라이브 걸림 assert) " + out.strip()[-150:])
     ne, lost = int(m[1]), int(m[3])
-    return ne <= 14 and lost == 0, f"배포 규칙 blind9 N 노출 {ne}/{m[2]} (기준 14 이하) 라이브 걸림 {lost}/{m[4]}, 규칙 A 재현"
+    rc2, out2 = sh([PY, "experiments/integ_holdout.py", "eval"])                      # A 의 머리 수치(integration.md 0절): 배포 경로 vis(4_scene)까지 얹은 blind9 N 노출
+    v = re.search(r"배포 경로 vis.*?A \+ n_visual 배포 임계\(표본 내\)\s+노출\s+(\d+)\s+라이브 손실\s+(\d+)", out2, re.S)
+    if rc2 or not v:
+        return False, "integ_holdout eval 실패 " + out2.strip()[-150:]
+    return ne <= 14 and lost == 0 and int(v[1]) <= 11 and int(v[2]) == 0, f"배포 규칙 blind9 N 노출 오디오만 {ne}/{m[2]} (기준 14 이하), + 화면(4_scene vis) {v[1]}/{m[2]} (기준 11 이하) 라이브 걸림 {lost}/{m[4]}, 화면 포함 라이브 손실 {v[2]}, 규칙 A 재현"
 
 
 def step_drift(accept=False):

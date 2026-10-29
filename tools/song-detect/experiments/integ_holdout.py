@@ -2,10 +2,12 @@
   python experiments/integ_holdout.py build   프레임 캐시(cache/proto_visual/frames, visual 트랙 산출)를 배포 코드 n_visual 로 점수화 -> cache/audit/vis_table.json (GPU, torch+open_clip 이 있는 venv python)
   python experiments/integ_holdout.py golden  승인 golden 113곡을 배포 경로(n_visual.fill: NAS 1080p 또는 치지직 144p 프레임 8장)로 점수화 -> cache/audit/vis_golden.json (GPU + NAS 세션 + 인터넷, 약 9분)
   python experiments/integ_holdout.py cal     vis_table 라이브 + vis_golden 라이브의 최댓값 + 0.1 x 범위로 n_visual_cal.json 의 thr 을 다시 정함(--write 가 있을 때만 저장)
-  python experiments/integ_holdout.py eval    표 출력. 입력: cache/audit/signals.csv(logo_route build) + vis_table.json
+  python experiments/integ_holdout.py eval    표 출력(배포 경로 vis 표, 이어서 참고용 프로토 프레임 표). 입력: cache/audit/signals.csv(logo_route build) + vis_table.json + out/<방송>/4_scene.json
 정의(0절): N 노출 = blind9 사용자 N 55곡 중 등록부 없이 완성본에 노출되는 수(auto 이거나 weak 가 아닌 review). 라이브 손실 = 블라인드 라이브 중 drop 이거나 weak 인 수.
   A(표본 내) = 배포 임계 그대로(임계가 이 표본에서 정해져 과적합 참고값). B(hold-out) = logo_route 행 D(임계/신호를 스트리머 제외로 다시 정함, m=0.1) 위에 n_visual 임계도 스트리머 제외로 다시 정해 얹음(임계 = 학습 라이브 최댓값 + m x 범위).
-shortcut: vis 표는 visual 트랙 프레임 204곡(라이브 133, N 71, 그중 신호 표와 맞는 163행)뿐이다. 스트리머 11명 표본이라 구간이 넓다."""
+shortcut: vis 표는 visual 트랙 프레임 204곡(라이브 133, N 71, 그중 신호 표와 맞는 163행)뿐이다. 스트리머 11명 표본이라 구간이 넓다.
+배포 경로 vis = out/<방송>/4_scene.json 의 후보 vis(NAS 프레임 8장, 실제 배포가 쓰는 값). blind9 104행만 NAS 후보와 맞는다(blind5/6/78 은 치지직 옛 방송이라 out/ 에 없어 프로토 프레임 값을 쓴다).
+shortcut: 같은 곡의 배포 - 프로토 vis 는 평균 +0.06, 표준편차 0.23, 범위 -0.59~+0.91(프레임 선택 잡음)이라 임계 근처 N 몇 곡의 노출 여부는 이 잡음이 정한다. 두 표를 같이 읽는다."""
 import json, os, sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,6 +65,10 @@ def cal(write=False):
     thr = float(lv.max() + 0.1 * (lv.max() - lv.min()))
     new = dict(c, thr=thr, n_live=int(len(lv)), live_max=float(lv.max()), live_min=float(lv.min()), thr_note="알려진 라이브 = visual 트랙 133곡 + golden 113곡(배포 경로 점수, 144p 포함)의 최댓값 + 0.1 x 범위. 통합 때 0.8045 -> 이 값으로 올림(golden 144p 라이브 0.79 와의 간격 0.015 가 너무 얇아서)")
     print(f"라이브 {len(lv)}곡 최대 {lv.max():.3f} 최소 {lv.min():.3f} -> 임계 {thr:.3f} (이전 {c['thr']:.3f})")
+    dup = sum(any(x["live"] and x["key"].startswith(f"blind9/{g['vid']}_") and abs(float(x["key"].rsplit("_", 1)[1]) - g["frozen"]["s"]) < 3 for x in V) for g in json.load(open("experiments/golden_v4.json", encoding="utf8"))["songs"] if "_" in g["vid"])
+    print(f"고유 곡 수 {len(lv) - dup} 이하(blind9 와 golden 에 둘 다 있는 {dup}곡을 한 번만 센 값. 치지직 번호 방송과 NAS 방송의 같은 곡은 못 맞춰 더 겹칠 수 있다)")
+    for nm, lo in (("최솟값", lv.min()), ("라이브 1% 분위", np.percentile(lv, 1))):          # 임계 여유는 최솟값 1곡(-1.58)이 정한다: 정의에 따른 민감도
+        print(f"  여유 정의 {nm} {lo:.2f}: m=0.05 -> {lv.max() + 0.05 * (lv.max() - lo):.3f}, m=0.1 -> {lv.max() + 0.1 * (lv.max() - lo):.3f}")
     if write:
         Path("n_visual_cal.json").write_text(json.dumps(new, indent=1), encoding="utf8")
     return new
@@ -77,13 +83,31 @@ def veto(v, live, grp, m):
     return hit
 
 
-def evaluate():
+def deploy_vis(sig):
+    """신호 표 blind9 행의 vis 를 4_scene.json(배포 경로)에서: 같은 방송 keep 후보 중 곡 구간과 50% 이상 겹치는 것. 못 찾으면 키가 빠진다."""
+    d = {}
+    for _, r in sig[sig.set == "blind9"].iterrows():
+        p = Path("out") / r.vno / "4_scene.json"
+        if not p.exists():
+            continue
+        a, b = r.start, r.start + r.len
+        ov, sg = max((((min(b, s["end"]) - max(a, s["start"])) / max(b - a, 1), s) for s in json.load(open(p, encoding="utf8"))["segs"] if s.get("keep")), key=lambda t: t[0])
+        if ov >= 0.5 and sg.get("vis") is not None:
+            d[r.key] = sg["vis"]
+    return d
+
+
+def evaluate(deploy=True):
     import logo_route as LR, n_signals
     from scene_multi import P as MP
     import n_visual
     V = pd.DataFrame(json.load(open(TAB, encoding="utf8")))
     V = pd.concat([V, golden_rows()], ignore_index=True)           # hold-out 임계의 학습 라이브에 golden(배포 경로 점수)도 넣는다: 같은 스트리머 곡은 veto() 가 그룹 제외로 뺀다
     sig = LR.with_golden(LR.load())                                   # 라이브 풀 = 신호 표 88 + golden 라이브(표에 없는 것) = 136
+    if deploy:                                                        # blind9 행의 vis 를 배포 경로(4_scene) 값으로: 임계 학습(veto)과 노출 계산 모두 같은 표를 쓴다
+        d = deploy_vis(sig)
+        assert len(d) == 104, f"blind9 104행이 모두 NAS 후보와 맞아야 한다: {len(d)}"
+        V["vis"] = [d.get(k, v) for k, v in zip(V.key, V.vis)]
     G = golden_rows().set_index("key").name                          # golden 행의 그룹은 방송이 아니라 스트리머로(스트리머 hold-out 에서 같은 스트리머가 학습에 섞이지 않게)
     sig["streamer"] = [G.get(k, n) for k, n in zip(sig.key, sig.name)]
     D, _ = LR.holdout(sig, "streamer", "D", 0.1)
@@ -92,6 +116,7 @@ def evaluate():
     fl = np.array([bool(n_signals.fire(dict(rel_db=r, bursts=b))) for r, b in zip(sig.rel_db.fillna(0), sig.bursts_per_min.fillna(0))])
     sig["dep_ok"] = ~(((sig.struct_cls == "drop") | (sig.tstd > MP["motion"])).to_numpy() | fl)
     X = sig.merge(V[["key", "vis"]], on="key", how="left")
+    print(f"\n=== {'배포 경로 vis(4_scene)' if deploy else '참고: 프로토 프레임 vis(cache/proto_visual)'} ===")
     print(f"신호 표 {len(sig)}행, vis 있음 {int(X.vis.notna().sum())}행, vis 표 {len(V)}곡(golden 포함, 임계 {thr:.3f})")
     out = {}
     for sub, mk in (("blind9", X.set == "blind9"), ("전체", X.set != "")):
@@ -102,6 +127,8 @@ def evaluate():
         a2 = dict(nA=int((N.dep_ok & (N.vis <= thr)).sum()), lA=int((~L.dep_ok | (L.vis > thr)).sum()))
         print(f"  A 배포 규칙(표본 내)           노출 {a['nA']:2d}  라이브 손실 {a['lA']}")
         print(f"  A + n_visual 배포 임계(표본 내) 노출 {a2['nA']:2d}  라이브 손실 {a2['lA']}")
+        for t in (0.8045, 0.907, 0.968, thr):                       # 임계 민감도: 라이브 손실 0 을 지키는 범위에서 N 노출이 임계에 얼마나 끌려가는지
+            print(f"  A + n_visual 임계 {t:.3f}          노출 {int((N.dep_ok & (N.vis <= t)).sum()):2d}  라이브 손실 {int((~L.dep_ok | (L.vis > t)).sum())}")
         print(f"  B 행 D m=0.1(hold-out)          노출 {int((N.D == 'ok').sum()):2d}  라이브 손실 {int((L.D != 'ok').sum())}")
         out[sub] = dict(A=a, A_vis=a2, B=(int((N.D == "ok").sum()), int((L.D != "ok").sum())))
         for m in (0.0, 0.1, 0.2):
@@ -123,5 +150,6 @@ if __name__ == "__main__":
     elif sys.argv[1:2] == ["cal"]:
         cal("--write" in sys.argv)
     else:
-        o = evaluate()
+        o = evaluate(True)
+        evaluate(False)
         assert o["blind9"]["A"]["lA"] == 0, "배포 규칙이 blind9 라이브를 걸러서는 안 된다"

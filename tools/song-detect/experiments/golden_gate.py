@@ -3,6 +3,7 @@
   python experiments/golden_gate.py freeze   동결(처음 한 번, 의도한 개선을 받아들일 때). 화이트리스트는 보존. 기준: cache/audit/master.json(audit_master.py)으로 승인 구간 -> 후보 매칭
   python experiments/golden_gate.py          비교(약 몇 분: 방송별 pcm 로드). 현재 = audit_engine.calc(refine 경계 -> fix -> snap) + route(tier+known_pos+known_neg)
 이탈 기준(PLAN_NEXT 3.3): 시작/끝 이동 > 2초, 클립 길이 변화 > 3초, 곡 사라짐(refine 후보 없음/drop), 등급 하락(기대 등급 expect = v3 코드 재현 등급, blind9 L 은 auto), 정답에서 멀어짐(재생목록 정답 오차 +2초 초과), 이웃 golden 곡과 새로 겹침.
+재현율(recall, 리뷰 C4/A5): golden 은 후보에 매칭된 곡만 본다. 승인 구간(approved.json, boundary_ok != False) 중 현재 3_final 의 keep 구간이 50% 이상 덮지 못하는 것을 따로 세어 golden_v4.json 의 recall_uncovered(기준선)에 없던 것이 생기면 이탈로 본다.
 shortcut: 이웃 겹침은 golden 곡끼리만 본다. tail(곡 끝 직후 말소리, D4)은 이동/길이로 안 잡히므로 이 게이트 대상이 아니다(P2 의 말소리 포함 검사로)."""
 import sys, json, copy
 from pathlib import Path
@@ -70,7 +71,7 @@ def freeze():
             e["frozen"]["err"] = [None if ts is None else c["s"] - ts, None if te is None else c["e"] - te]
         E._W.clear() if len(E._W) > 1 else None                   # pcm 캐시는 방송 2개까지만(메모리)
     old = json.load(open(GOLD, encoding="utf8")) if GOLD.exists() else {}
-    GOLD.write_text(json.dumps(dict(whitelist=old.get("whitelist", []), unresolved=old.get("unresolved", []), unmatched=unmatched, songs=out), ensure_ascii=False, indent=1), encoding="utf8")
+    GOLD.write_text(json.dumps(dict(whitelist=old.get("whitelist", []), unresolved=old.get("unresolved", []), recall_uncovered=old.get("recall_uncovered", []), unmatched=unmatched, songs=out), ensure_ascii=False, indent=1), encoding="utf8")
     print(f"{GOLD.name}: {len(out)}곡 동결 (승인 구간 중 후보 매칭 실패 {len(unmatched)}), 기대 등급보다 낮은 현재 상태:",
           [(e["id"], e["expect"], e["frozen"]["tier"]) for e in out if RANK[e["frozen"]["tier"]] < RANK[e["expect"]]])
 
@@ -111,6 +112,25 @@ def check(quiet=False):
     return bad
 
 
+def recall(G):
+    """승인 구간 중 현재 3_final 의 keep 구간 하나가 50% 이상 덮는 것의 수. 못 덮는 구간 키(vid@시작)가 기준선(G['recall_uncovered'])에 없으면 새 실패. out/<vid>/3_final.json 이 없는 방송(blind5/6 옛 방송)은 못 본다."""
+    base, unc, nodata, n = set(G["recall_uncovered"]), [], 0, 0
+    for x in json.load(open(ROOT / "data/approved.json", encoding="utf8")):
+        if x.get("boundary_ok") is False:
+            continue
+        n += 1
+        p = ROOT / "out" / str(x["videoNo"]) / "3_final.json"
+        if not p.exists():
+            nodata += 1
+            continue
+        f = json.load(open(p, encoding="utf8")); S = f["segs"] if isinstance(f, dict) else f
+        if max([ovl(s["start"], s["end"], x["start"], x["end"]) for s in S if s.get("keep")] + [0]) < 0.5 * (x["end"] - x["start"]):
+            unc.append(f"{x['videoNo']}@{x['start']:.0f}")
+    new, back = sorted(set(unc) - base), sorted(base - set(unc))
+    print(f"recall 승인 구간 {n}개 중 keep 구간이 50% 이상 덮지 못함 {len(unc)}개 (기준선 {len(base)}개, 새 실패 {len(new)}건 {new}, 회복 {len(back)}건 {back}), 방송 데이터 없음 {nodata}개")
+    return new
+
+
 def n_check():
     """blind9 N 75행(중복 포함)이 승인 구간 면제로 새지 않는지: route.tier -> known_pos(실제 approved.json) 까지만(등록부 known_neg 없이) 돌려 auto 가 0 이어야 한다.
     움직임 drop 이던 N 이 면제 경로로 올라가면 '면제' 표시가 붙으므로 그 수도 0 이어야 한다. known_neg 까지 넣은 실제 흐름은 전부 drop 이어야 한다."""
@@ -137,4 +157,5 @@ if __name__ == "__main__":
         freeze()
     else:
         n_check()
-        sys.exit(1 if check() else 0)
+        bad = check()
+        sys.exit(1 if (bad or recall(json.load(open(GOLD, encoding="utf8")))) else 0)

@@ -37,7 +37,9 @@ UNRESOLVED_ALL = "승인 시작이 음악 시작보다 15~25초 늦은 5곡(나�
 MANUAL = {(20, "start"): False, (20, "end"): False, (24, "end"): True, (26, "end"): False, (44, "start"): False, (47, "start"): True, (49, "start"): True, (49, "end"): True,
           (52, "start"): False, (54, "start"): False, (60, "end"): True, (111, "start"): False, (112, "end"): True}
 CUT, EXTRA = 1.0, 3.0
-EXISTS = [dict(n=64, start=80.0, end=284.0, want="not drop", why="메모: 방송 시작 3분쯤 라이브 1곡 더(데뷔방송 셋리스트), 앞 5분 규칙 예외")]
+EXISTS = [dict(n=64, start=80.0, end=284.0, want="not drop", why="메모: 방송 시작 3분쯤 라이브 1곡 더(데뷔방송 셋리스트), 앞 5분 규칙 예외"),
+          dict(n=33, start=22620.7, end=22778.0, want="not drop", why="메모: 01:00 쯤부터 MR 라이브 자장가, 앞부분을 자르면 라이브 클립으로 쓸 수 있음(N 로 등록됨)")]
+# shortcut: 위 둘은 지금 못 맞춘다(64: 앞 5분 규칙 예외 설계 필요, 33: 등록부 N 이 이긴다). harness/check.py 가 저장본(BASE)에 이미 실패인 항목만 허용하고 새 실패는 막는다. 사용자 결정 뒤 고친다.
 
 
 def name_of(slug):
