@@ -3,7 +3,7 @@
 > 근거: `data/review/blind9/audit/` 의 g1~g4.json(메모 145행 검수), regression.json(회귀 191행), loso.json / loso_signals.json / loso_combo.json(일반화 측정), 조사 4건(R1~R4).
 > 이 문서는 읽기 전용 분석의 결과이며 코드와 기존 데이터는 바꾸지 않았다. 구현은 4절 계획대로 다음 작업에서 한다.
 
-## 진행 상태 (2026-10-28, HANDOFF 28절 참조)
+## 진행 상태 (2026-10-29, HANDOFF 28~32절 참조)
 
 | 항목 | 상태 | 비고 |
 |---|---|---|
@@ -17,6 +17,9 @@
 | P7 후보 10곡 선택, P8 가치 확인 | P8 일부 시행 | 시각 정렬/학습형 AND/asr 힌트/YAMNet 추가 클래스는 기각 또는 미연결(integration.md 5절), P7 미착수 |
 | 리뷰 반영(통계/codex/도메인 27건) | 완료 | 재현해 판정, 문서 정정 + recall 게이트 + lead_pad settle(2클립), 사용자 결정 5건(HANDOFF 31절, integration.md 9절) |
 | 61방송 재생성(RULE v6-integrate) | 완료 | 등급 이동 0, 클립 62곡(weak 1곡 제외), memo hit 8/11/12, 승인 auto 이동 0, 자체 검수 62클립(HANDOFF 30절) |
+| 프로토타입 5트랙 실측과 통합 총정리 | 완료 | 트랙별 실측표, 전/후 공통 정의, 새 도구 사용법(HANDOFF 32절). 판정용 `data/review/blind12/review.csv`(priority=1 상위 10곡) |
+| 2차 적대적 리뷰(2건, finding 8과 1, ship_with_fixes) | **미반영** | 본문이 마감 단계에 전달되지 않음. 새 세션이 리뷰를 다시 돌리거나 원문을 확인할 것(HANDOFF 32.5절) |
+| 사용자 답 대기 | 열림 | 22/82/18 끝 시각, 승인 시작 늦은 5곡 전주 정책, #45 전주 선호, '클립 금지' 4곡, TAIL/페이드. 답에 따라 켤 보류 규칙 표는 HANDOFF 32.7절 |
 
 ## 0. 지난 처리의 문제 (먼저 인정)
 
