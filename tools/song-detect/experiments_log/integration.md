@@ -287,7 +287,7 @@ n_visual 이 더하는 손실: hold-out 임계 m=0.1 에서는 blind9 49 와 전
 | A5 승인 구간 12개 사각지대 | fixed(게이트) / 탐지 재현율은 deferred | 재현: unmatched 12(고유 10), 그중 8개가 3_final keep 이 50% 도 덮지 못함. `golden_gate.py` 에 recall 게이트 추가(기준선 `recall_uncovered` 8개, 새 실패 시 이탈, 현재 새 실패 0). 15761307@2703 의 정답 시작 2377.5 는 앞 곡(2377~2684 keep)과 이 곡을 한 항목으로 묶은 값이라 truth 시작을 비움(재현: 3_final 에 2377~2684 keep). 탐지 조각화 자체는 이번 범위 밖 |
 | A6 E1B_LOUD 단일 표본 | partial / 코드 변경 없음(주석만) | 직접 확인: E1B_DROP 15(현재)에서 E1B_LOUD 9.0, 9.6, 10.0, 10.8, 11.0, 11.8 전부 golden 이탈 0, 메모 감사 동일(8/11/12). 2D 격자의 실패는 DROP >= 18 과 LOUD <= 9.6 조합이라 현재 값에는 해당 없음. 정답 1건 근거라는 점은 그대로이고 snap.py 주석에 적었다 |
 | A7 A 지표 정의 세 값 | fixed | 0절에서 A 머리 수치를 배포 경로 11/55 로 고정, 14(오디오만), 12(프로토 프레임)는 이름을 바꿔 병기. `check.py` 의 logo 단계가 둘을 다 단언 |
-| B0 codex 리뷰 미실행 | 환경 확인 후 재실행(결과는 아래 B 절) | 재현: 이번 세션에서 `codex-companion setup --json` 이 ready(codex-cli 0.164.0)라 같은 프롬프트로 다시 돌렸다. 앞선 실패는 환경 문제였다 |
+| B0 codex 리뷰 미실행 | fixed(재실행, 결과는 9.1절) | 재현: 이번 세션에서 `codex-companion setup --json` 이 ready(codex-cli 0.164.0)라 같은 프롬프트로 다시 돌렸다(task-mvssk5z8, 읽기 전용, 13분). 앞선 실패는 환경 문제였다. verdict block, finding 9건(high 2, medium 7) |
 | C1 '클립 금지' 4곡 | fixed(목록, 도구) / 정책 결정은 user | 재현: 흰 글자 마스크 7프레임 중 7 일치가 정확히 4곡(나나 10-16 #19 #20 #21 review, #22 auto). `experiments/clip_banner.py`(마스크 `clip_banner_mask.png`)가 목록과 `out/CLIP_BANNER.txt` 를 만든다. 승인 클립 이탈 0 을 지키려고 옮기거나 지우지 않았다. READ_ME_FIRST 와 8.6 에 되살림. 이번 재생성이 #19 #21 의 S3 시작을 바꾼 것은 사실이다(문구가 있는 곡의 시작을 바꿨다) |
 | C2 #111 소리 확인 | fixed(자체 검수 정정) / 규칙은 deferred | 재현: 스펙트로그램(views/46.png)에서 t=1.25 부터 저음량 MR, t=6.0 에 -66dB 딥, 메모 00:05 와 같은 곳. memo_audit #111 시작 -3.7. 자체 검수를 ok -> soundcheck 로 정정(52/7/2/1), #22 #54 #82 의 memo_vs 에 방향 미충족 표시. "딥 직전 컷" 규칙은 새 규칙이라 게이트가 필요하고 표본 1곡이라 하지 않음 |
 | C3 메모 필수 곡 2개 미생성 | fixed(게이트 허용 목록) / 생성은 deferred | 재현: `exists` 실패 #64. #33 도 EXISTS 에 추가, `check.py` 가 허용 목록 {64, 33} 외의 새 실패를 막는다. #64 앞 5분 예외는 규칙 설계(데뷔방송 판별)가 필요하고 #33 은 등록부 N 이 이겨 사용자 결정 대기 |
@@ -300,3 +300,23 @@ n_visual 이 더하는 손실: hold-out 임계 m=0.1 에서는 blind9 49 와 전
 | C10 시작 late 11 -> 7 | fixed(문서) | 해소로 센 4곡 중 검증된 것은 #44(재생목록 20079.15 와 +0.1), #54(오디오 근거 23283.2 와 -0.1) 둘이고 #50 #65 는 conf low 로 방향만이다. HANDOFF 30절 문구를 정정 |
 
 숫자 일관성 확인: `python harness/check.py` 종료코드 0, `python experiments/memo_audit.py out/final,out/final_review` 의 [current] 가 [engine_rev] 와 같은 지표(8/11/12, 0.35초, 방향 16/27, 길이>5초 1, 좋음 67/67, 한 곡 산출물 2개 이상 0), `regen_clips_diff.py` 변화 8곡(이전 6 + settle 2), 승인(auto) 곡 이동은 toa 10-24 #08 끝 컷 +0.30초 하나뿐.
+
+### 9.1 codex 적대적 리뷰 결과 (B1~B9, 각각 재현해 판정)
+
+verdict 는 "block"(high 2건)이었다. 아래처럼 7건을 고치고 1건은 기각, 나머지는 문서화했다. 게이트 전부 통과(check.py 종료코드 0, drift 의 scratch 재계산 122단계 결과 변화 0).
+
+| id | 판정 | 근거와 조치 |
+|---|---|---|
+| B1 high NAS 화면 신호 읽기 실패가 정상으로 저장 | fixed | 재현: `n_visual.fill` 은 프레임을 못 읽어도 vis=None 으로 반환하고(stderr 한 줄), manifest 는 그대로 scene/route 완료 키를 기록한다. 조치 (a) NAS 주소에서 후보 전부 못 읽으면 `scene.NasDown`(세션 만료 401 이나 NAS 중단, 로그인은 시도하지 않음, `n_visual.py` selftest), (b) vis 가 덜 채워진 방송은 `Run.partial` 에 넣어 scene/route 키를 기록하지 않아 다음 실행에서 다시 한다(manifest selftest). 일부 후보만 못 읽은 경우는 옛 동작(stderr 한 줄)이다 |
+| B2 high sig 캐시 키에 점수 npy 없음 | fixed | 재현: `Run.sig` 의 `_ck` 는 코드와 wav 서명뿐인데 n_signals 는 scores.npy 를 읽는다. 키에 `cache/detect/<wav>.scores.npy` 서명을 더했다(다음 route 실행에서 sig.json 이 한 번 다시 계산됨, 결과 동일: drift 0) |
+| B3 medium manifest.json 쓰다 중단 | fixed | 재현: 직접 덮어쓰기라 중단되면 다음 실행이 JSONDecodeError. 임시 파일 + `os.replace`, 깨진 기록은 "기록 없음"(전부 stale 이라 다시 계산할 뿐 틀린 결과 없음)으로 읽는다 |
+| B4 medium 장면 풀 의존성 누락 | fixed | 재현: scene 키/재사용 키가 `scene_pool.npz` 만 봤는데 `scene_pool.pool()` 은 scene_pool.json, scene_pool_refs.npz/json, data/refs.json 도 읽는다. `Run.pool_sigs()` 로 다섯 파일 서명을 scene 키와 재사용 키에 넣었다 |
+| B5 medium vis 보정값 변경이 route 만 | fixed | 재현: cal 파일은 route 키에만 있어 mu/sd 가 바뀌어도 vis 를 다시 계산하지 않는다. `Run.vis_cal()`(mu, sd 만)을 scene 키에 넣었다. 임계 thr 만 바뀌면 route 만 다시 한다(NAS 를 다시 읽지 않음) |
+| B6 medium has_refs 이전 값 고정 | fixed | 재현: `Run.scene` 이 항상 이전 4_scene 의 has_refs 를 저장. `scene_real.real_has_refs`(현재 풀로 계산, pipeline.main 의 `R is not None` 과 같은 기준)를 `refs_fn` 으로 연결. 현재 데이터에서는 61방송 모두 저장값과 같아(재현: 차이 0) 지금 결과는 안 바뀐다 |
+| B7 medium 세션 쿠키가 ffmpeg 명령행에 노출 | rejected(문서) | 재현 가능하나 기준선부터 있던 방식이다(`scene.thumbs`, `make_final.encode` 도 `nas_auth.ffargs` 로 같은 -headers 인자를 쓴다). n_visual 은 같은 패턴을 쓰는 호출이 하나 더 늘었을 뿐이고 쿠키는 이미 `cache/nas_session.txt` 평문이다. 같은 PC 의 다른 사용자 프로세스가 목록을 볼 수 있는 환경이 아니면 위험이 늘지 않는다. 고치려면 로컬 중계(프록시)나 쿠키 파일 방식이 필요해 이번 범위 밖(HANDOFF 31절 한계에 적음) |
+| B8 medium 섀도 게이트가 카드 삭제를 통과 | fixed | 재현: `diff` 는 B 카드에서 A 로만 맞춰 A 에만 남은 카드를 못 본다. A 라벨을 받아 노출되던 L/B 카드가 B 에 대응 없이 사라지면 "승인 라이브 카드 사라짐" 이탈(shadow selftest, check.py 의 drift 가 `labels(old)` 를 넘김) |
+| B9 medium settle 클립이 옛 파일로 남음 | fixed | 재현: 파일 이름이 초 단위라 toa 10-24 #09(컷 3365.15 -> 3365.35, 둘 다 005605)는 옛 클립이 같은 이름으로 남아 `make` 가 건너뛴다. 이번에는 옛 파일을 먼저 `out/stale_v6` 로 옮겨 새로 만들었지만 일반 재실행은 못 했다. 재사용 조건에 `vod_start/vod_end` 일치를 추가했다. 기존 클립 62개 모두 같은 컷이라 재생성 대상 0(encode 를 막고 `make_final.main` 을 전 방송에 돌려 확인), RULE 문자열은 그대로 |
+
+manifest 키 정의가 바뀌어 `out/manifest.json` 의 scene/route/scene_in 을 새 정의로 한 번 옮겼다(final 키가 61방송 모두 최신인 것을 확인한 뒤 현재 키로 갱신: 출력 파일은 안 바뀜, 백업 `cache/review_A/manifest.bak.json`). 안 옮기면 다음 `reroute_nas --manifest` 가 61방송 장면을 NAS 에서 다시 읽는다(약 28분). 옮긴 뒤 plan 은 "전부 최신"이다.
+
+codex 가 밝힌 한계: NAS 접속과 로그인은 하지 않았고 `SHARD` 실제 병렬 인코딩은 실행하지 않았다(분할 누락/중복 없음만 확인).
