@@ -4,6 +4,9 @@
   python experiments/golden_gate.py          비교(약 몇 분: 방송별 pcm 로드). 현재 = audit_engine.calc(refine 경계 -> fix -> snap) + route(tier+known_pos+known_neg)
 이탈 기준(PLAN_NEXT 3.3): 시작/끝 이동 > 2초, 클립 길이 변화 > 3초, 곡 사라짐(refine 후보 없음/drop), 등급 하락(기대 등급 expect = v3 코드 재현 등급, blind9 L 은 auto), 정답에서 멀어짐(재생목록 정답 오차 +2초 초과), 이웃 golden 곡과 새로 겹침.
 재현율(recall, 리뷰 C4/A5): golden 은 후보에 매칭된 곡만 본다. 승인 구간(approved.json, boundary_ok != False) 중 현재 3_final 의 keep 구간이 50% 이상 덮지 못하는 것을 따로 세어 golden_v4.json 의 recall_uncovered(기준선)에 없던 것이 생기면 이탈로 본다.
+범위(리뷰 A2-4): 경계(곡/클립)는 현재 코드(audit_engine.calc)로 다시 계산하지만, 등급 입력(장면 multi, tstd, blk, scene, has_refs)은 저장된 out/<방송>/4_scene.json 에서 읽는다. NAS 방송 13개는 통합 뒤(10-29) 재생성한 산출물이고,
+치지직 번호 방송 12개(golden 70곡)의 4_scene.json 은 통합 전(10-25) 산출물이다. 장면 규칙(scene_multi, scene, black_max 등)을 바꾸면 이 게이트는 치지직 golden 의 등급 변화를 못 본다 -> `python harness/check.py --rescene` 이 그 12개 방송의 장면 단계를
+스크래치(cache/harness/golden_scene)에 다시 돌리고 `--scene-root` 로 이 게이트에 넘긴다(약 13분, 인터넷 필요; 실측 이탈 0).
 shortcut: 이웃 겹침은 golden 곡끼리만 본다. tail(곡 끝 직후 말소리, D4)은 이동/길이로 안 잡히므로 이 게이트 대상이 아니다(P2 의 말소리 포함 검사로)."""
 import sys, json, copy
 from pathlib import Path
@@ -13,6 +16,7 @@ import os
 os.chdir(ROOT)
 import tune  # SONG_TUNE 환경변수가 있으면 상수 오버라이드(tune.py 참고), 없으면 아무 일도 안 한다
 GOLD = ROOT / "experiments/golden_v4.json"
+SCENE = ROOT / "out"                  # 4_scene.json 을 읽는 루트(--scene-root 로 바꿈)
 RANK = {"auto": 3, "review": 2, "optional": 1, "drop": 0}
 
 
@@ -28,7 +32,8 @@ def current(vid, rs, re_):
     if k is None:
         return None
     c = E.calc(vid, rs, re_)
-    sc = json.load(open(ROOT / "out" / vid / "4_scene.json", encoding="utf8"))
+    f = SCENE / vid / "4_scene.json"
+    sc = json.load(open(f if f.exists() else ROOT / "out" / vid / "4_scene.json", encoding="utf8"))
     g = copy.deepcopy(sc["segs"][k]); g["start"], g["end"], g["len"] = c["fix_s"], c["fix_e"], c["fix_e"] - c["fix_s"]
     try:
         import piano_gate; piano_gate.annotate(vid, [g])
@@ -156,6 +161,8 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["freeze"]:
         freeze()
     else:
+        if "--scene-root" in sys.argv:                           # 이 루트에 4_scene.json 이 있는 방송만 거기서 읽고 나머지는 out/ 에서(NAS 방송은 이미 최신)
+            SCENE = ROOT / sys.argv[sys.argv.index("--scene-root") + 1]
         n_check()
         bad = check()
         sys.exit(1 if (bad or recall(json.load(open(GOLD, encoding="utf8")))) else 0)

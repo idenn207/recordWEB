@@ -146,7 +146,7 @@ class Run:
         t0 = time.perf_counter()
         d = self.root / s
         old = json.load(open(d / "4_scene.json", encoding="utf8")) if (d / "4_scene.json").exists() else dict(has_refs=False, segs=[])
-        ck = h(code_key("scene"), *self.pool_sigs(), fh(ROOT / "n_visual_cal.json"))
+        ck = h(code_key("scene"), *self.pool_sigs(), self.vis_cal())          # vis_cal(): mu/sd 만. 보정 파일의 thr 이나 설명만 바뀌어도 NAS 를 다시 읽던 것을 scene 키(key)와 맞춤(리뷰 A2-8)
         # scene_fn 이 있는 실사용에서는 scene 코드/풀이 지난 실행과 같을 때만 후보를 재사용한다(black_max 같은 임계나 풀이 바뀌면 같은 경계라도 multi 가 달라질 수 있어 전부 다시 읽는다).
         # scene_fn 이 없는 점검용(check.py)은 예전처럼 항상 재사용/근사
         reuse = self.scene_fn is None or self.M.get(s, {}).get("scene_in") == ck

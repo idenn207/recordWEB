@@ -34,8 +34,10 @@ UNRESOLVED = {18: "메모 '1분 끊김'과 오디오(+19.5초만 확인)가 어�
               45: "재생목록 시작이 15.6초 앞(MR 전주 포함)인데 L: 전주 포함 선호인지 미확인"}
 UNRESOLVED_ALL = "승인 시작이 음악 시작보다 15~25초 늦은 5곡(나나 10-06 25775 승인 시작 25774.35, 28389 등)의 의도 미확인: S3 류 시작 규칙은 auto 에 못 씀(P5 이후)"
 # 지난 수동 자체 검수(audit g1~g4)의 숫자 정답 판정(pass=True). 자동 판정(asym)이 이것을 재현하는지 본다: 자르면 안 되는 쪽(시작이 늦음/끝이 이름) 1초, 남는 쪽 3초.
-MANUAL = {(20, "start"): False, (20, "end"): False, (24, "end"): True, (26, "end"): False, (44, "start"): False, (47, "start"): True, (49, "start"): True, (49, "end"): True,
-          (52, "start"): False, (54, "start"): False, (60, "end"): True, (111, "start"): False, (112, "end"): True}
+# (44, start), (54, start) 는 S3 이전 판정(False)이라 통합 뒤 틀린 참조였다. 지금 경계가 정답(재생목록 20079.15 +0.1초, 오디오 근거 23283.2 -0.1초)에 맞아 True 로 고쳤다(리뷰 A2-7).
+# (20, end), (26, end) 는 P2 이전 판정 그대로 False 라 자동 판정과 일치하지 않는다(의도한 개선, selftest 의 manual_agree 11/13 에 들어 있다).
+MANUAL = {(20, "start"): False, (20, "end"): False, (24, "end"): True, (26, "end"): False, (44, "start"): True, (47, "start"): True, (49, "start"): True, (49, "end"): True,
+          (52, "start"): False, (54, "start"): True, (60, "end"): True, (111, "start"): False, (112, "end"): True}
 CUT, EXTRA = 1.0, 3.0
 EXISTS = [dict(n=64, start=80.0, end=284.0, want="not drop", why="메모: 방송 시작 3분쯤 라이브 1곡 더(데뷔방송 셋리스트), 앞 5분 규칙 예외"),
           dict(n=33, start=22620.7, end=22778.0, want="not drop", why="메모: 01:00 쯤부터 MR 라이브 자장가, 앞부분을 자르면 라이브 클립으로 쓸 수 있음(N 로 등록됨)")]
@@ -329,7 +331,7 @@ def selftest():
     s = summarize(ev)
     assert s["vanished"] == 0 and s["ok_pass"] == s["ok_n"] > 0, s
     cur = summarize(evaluate(exp, load_src("out/final,out/final_review", exp)))
-    assert (cur["manual_agree"], cur["manual_n"]) == (9, 13), cur      # 자동 asym 판정과 수동 감사 13건의 일치. 26절 P2 이후 #20, #26 끝이 수동(실패)에서 통과로 바뀌어 11, 통합(S3)으로 #44, #54 시작이 통과로 바뀌어 9 (의도한 개선, out/final* 재생성 v6 기준)
+    assert (cur["manual_agree"], cur["manual_n"]) == (11, 13), cur      # 자동 asym 판정과 수동 감사 13건의 일치. 26절 P2 이후 #20, #26 끝이 수동(실패)에서 통과로 바뀌어 11(참조가 P2 이전 판정). #44, #54 시작은 S3 뒤 참조(MANUAL)를 고쳐 11 유지(out/final* v6 기준)
     assert evaluate(exp, [])["vanished"] == [g["gid"] for g in exp["groups"] if g["lab"] != "N"]      # N 은 사라지는 것이 정상
     assert flat({"a": {"b": 1}, "c": 2}) == {"c": 2, "a.b": 1}
     print("selftest ok")

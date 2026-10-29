@@ -83,20 +83,41 @@ def load(rebuild=False):
     return pd.read_csv(SIG, keep_default_na=True, na_values=[""], dtype={"vno": str, "tag": str, "multi": str}).fillna({"tag": "", "multi": ""})
 
 
+def golden_scene(s):
+    """golden 곡의 저장된 4_scene.json 후보(refine 구간과 같은 keep 후보) -> (후보, has_refs). golden_gate.current 와 같은 매칭"""
+    import audit_engine as E
+    k = next(i for i, g in enumerate(E.kept(s["vid"])) if abs(g["start"] - s["refine"][0]) < 0.2 and abs(g["end"] - s["refine"][1]) < 0.2)
+    sc = json.load(open(f"out/{s['vid']}/4_scene.json", encoding="utf8"))
+    return sc["segs"][k], sc["has_refs"]
+
+
 def with_golden(df):
-    """승인 라이브(golden_v4.json)를 라이브 전용 행으로 덧붙인다(오디오 신호 2개만 채움, 같은 방송 같은 구간이 이미 표에 있으면 건너뜀). 신호 임계가 표 밖 라이브에도 버티는지 보려는 것이라 N 행은 없다.
+    """승인 라이브(golden_v4.json)를 라이브 전용 행으로 덧붙인다(같은 방송 같은 구간이 이미 표에 있으면 건너뜀). 신호 임계가 표 밖 라이브에도 버티는지 보려는 것이라 N 행은 없다.
+    채우는 열(리뷰 A2-3): 구조 규칙 입력(tstd, blk, speech, scene, multi, struct_cls: 저장된 4_scene.json, build() 와 같은 규칙), 점수 캐시 오디오 특징(audio_feats), rel_db, bursts_per_min. 비어 있는 열은 화면 키프레임 특징 3개(moving_frac, bright_px, diff_med)뿐이라
+    그 신호가 선택돼도 golden 행에는 적용되지 않는다(손실 수는 하한).
     shortcut: 그룹 = 방송(영상번호)로 둬서 스트리머 단위 hold-out 은 방송 단위와 같아진다(스트리머 이름 매핑 생략)."""
-    import n_signals
+    import n_signals, loso_n
+    from loso_signals import audio_feats
+    from scene_multi import P as MP
     rows = []
     for s in json.load(open("experiments/golden_v4.json", encoding="utf8"))["songs"]:
         a, b = s["frozen"]["s"], s["frozen"]["e"]
         if ((df.vno == s["vid"]) & (np.minimum(df.start + df.len, b) - np.maximum(df.start, a) > 0.5 * (b - a))).any():
             continue
         seg = [dict(keep=True, start=a, end=b)]
-        n_signals.fill(seg, Path(f"data/vod/nas/{s['vid']}.wav") if s["vid"].startswith("20") else Path(f"data/vod/{s['vid']}.wav"))
+        wav = Path(f"data/vod/nas/{s['vid']}.wav") if s["vid"].startswith("20") else Path(f"data/vod/{s['vid']}.wav")
+        n_signals.fill(seg, wav)
         if seg[0].get("bursts") is not None:
+            g, has_refs = golden_scene(s)
+            g = dict(g, weak=False, tier=None)
+            mu = "unknown" if g.get("multi") == "watch" and (g.get("tstd") or 0) > MP["motion"] else g.get("multi")      # build() 와 같은 구조 규칙 판정(움직임 임계 해제)
+            with loso_n.thr(motion=1e9, weak=1e9):
+                t2, why2, _, _ = loso_n.grade(dict(g=g, vno=s["vid"]), mu, g.get("scene"), has_refs, use_likely=False)
+            f = audio_feats(np.load(f"cache/detect/{wav.stem}.scores.npy"), a, b)
             rows.append(dict(key=f"golden/{s['id']}", set="golden", name=f"golden|{s['vid']}", vno=s["vid"], group=f"golden|{s['vid']}", live=1, tag="", len=b - a, start=a,
-                             struct_cls="review", base_cls="review", bursts_per_min=seg[0]["bursts"], rel_db=seg[0]["rel_db"]))
+                             tstd=g.get("tstd"), blk=g.get("blk"), speech=g.get("speech"), scene=g.get("scene"), multi=g.get("multi") or "", has_refs=int(bool(has_refs)),
+                             struct_cls=loso_n.cls(t2, False), struct_why=why2, base_cls="review",
+                             **{k: f[k] for k in ("sing", "speech_frac", "music", "sing_std", "sp_mid_frac", "nospeech_max_frac", "ctx_speech")}, bursts_per_min=seg[0]["bursts"], rel_db=seg[0]["rel_db"]))
     return pd.concat([df, pd.DataFrame(rows)], ignore_index=True)
 
 
