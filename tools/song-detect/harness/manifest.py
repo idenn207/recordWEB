@@ -6,7 +6,7 @@
 카드 v2(cards2.json): route 입력 전부(g_in) + 경계 이력(stages) + 결정. replay.py 가 카드만으로 결정을 다시 계산한다.
 사용: python harness/manifest.py plan|run   /   python harness/manifest.py selftest   (스크래치 cache/proto_harness/out 에서만)
 shortcut: 파일 서명은 크기+mtime(내용 해시 아님, wav 39GB), 경계가 같은 후보를 같은 후보로 본다(0.1초 반올림), scene 코드가 바뀌면 stale 로 보고 후보 단위 재사용은 호출자가 정한다."""
-import ast, hashlib, json, os, sys, time
+import ast, contextlib, hashlib, json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from harness.lib import *
@@ -24,6 +24,29 @@ def _strip(n):
         if isinstance(b, list) and b and isinstance(b[0], ast.Expr) and isinstance(getattr(b[0], "value", None), ast.Constant) and isinstance(b[0].value.value, str):
             b[:] = b[1:] or [ast.Pass()]
     return n
+
+
+@contextlib.contextmanager
+def _lock(path, wait=3600):
+    """root 단위 배타 잠금. OS 잠금이라 프로세스가 죽으면 풀린다. 같은 root 를 두 실행이 동시에 돌리면 임시 파일·단계 파일·기록 갱신이 엉킨다(리뷰 B-3).
+    shortcut: 기다리는 순서는 보장하지 않고(폴링), wait 초 안에 못 잡으면 예외"""
+    f, t0 = open(path, "a+b"), time.time()
+    try:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    f.seek(0); msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                assert time.time() - t0 < wait, f"{path}: {wait}초 안에 잠금을 못 잡았다(다른 실행이 같은 root 를 쓰는 중)"
+                time.sleep(0.2)
+        yield
+    finally:
+        f.close()
 
 
 _CK = {}
@@ -83,14 +106,17 @@ class Run:
     def __init__(self, root=PH / "out_m", scene_fn=None, vis_fn=None, refs_fn=None):
         self.root, self.scene_fn, self.vis_fn, self.refs_fn = Path(root), scene_fn, vis_fn, refs_fn      # vis_fn(slug, segs): 화면 신호 g["vis"] 채우기(n_visual, GPU 호스트에서만). refs_fn(slug): 현재 풀로 계산한 has_refs(없으면 이전 4_scene 값 그대로)
         self.mf = self.root / "manifest.json"
-        try:
-            self.M = json.load(open(self.mf)) if self.mf.exists() else {}
-        except ValueError:                                         # 쓰다 중단돼 깨진 기록: 기록 없음으로 본다(전부 stale 이라 다시 계산할 뿐 틀린 결과는 안 나온다)
-            self.M = {}
+        self.M = self._load()
         self.partial = set()                                       # 화면 신호(vis)가 덜 채워진 방송: scene/route 키를 기록하지 않아 다음 실행에 다시 한다
         self.R = {r["slug"]: r for r in rows()}
         self.t = {}          # 단계별 누적 실행 시간(초)
         self.n = {}          # 단계별 실행 수(scene/sig 는 후보 수)
+
+    def _load(self):
+        try:
+            return json.load(open(self.mf)) if self.mf.exists() else {}
+        except ValueError:                                         # 쓰다 중단돼 깨진 기록: 기록 없음으로 본다(전부 stale 이라 다시 계산할 뿐 틀린 결과는 안 나온다)
+            return {}
 
     def wav(self, s):
         return Path(self.R[s]["wav"])
@@ -101,10 +127,15 @@ class Run:
         if stage == "final":
             return h(code_key("final"), fh(d / "2_refine.json"), sig_of(w), sig_of(str(det) + ".scores.npy"), sig_of(str(det) + ".vocal.json"))
         if stage == "scene":
-            return h(code_key("scene"), fh(d / "3_final.json"), *self.pool_sigs(), self.vis_cal())
+            return h(code_key("scene"), fh(d / "3_final.json"), *self.scene_sigs(s))
         if stage == "route":
             return h(code_key("route"), fh(d / "4_scene.json"), registry_for(s), sig_of(ROOT / "cache/exp12p/other.json"), code_key("sig"), fh(ROOT / "n_visual_cal.json"))
         raise KeyError(stage)
+
+    def scene_sigs(self, s):
+        """scene 결과가 기대는 입력 서명: 읽는 NAS 영상(경로와 크기. 영상이 바뀌면 같은 경계도 다시 읽는다, 리뷰 B-4) + 장면 풀 + vis 보정"""
+        r = self.R.get(s, {})
+        return [r.get("path"), r.get("size"), *self.pool_sigs(), self.vis_cal()]
 
     def pool_sigs(self):
         """scene_pool.pool() 이 읽는 파일 전부(프레임 npz, 메타 json, 추가 참조 npz/json, 날짜용 refs.json)의 서명"""
@@ -146,7 +177,7 @@ class Run:
         t0 = time.perf_counter()
         d = self.root / s
         old = json.load(open(d / "4_scene.json", encoding="utf8")) if (d / "4_scene.json").exists() else dict(has_refs=False, segs=[])
-        ck = h(code_key("scene"), *self.pool_sigs(), self.vis_cal())          # vis_cal(): mu/sd 만. 보정 파일의 thr 이나 설명만 바뀌어도 NAS 를 다시 읽던 것을 scene 키(key)와 맞춤(리뷰 A2-8)
+        ck = h(code_key("scene"), *self.scene_sigs(s))          # vis_cal(): mu/sd 만. 보정 파일의 thr 이나 설명만 바뀌어도 NAS 를 다시 읽던 것을 scene 키(key)와 맞춤(리뷰 A2-8)
         # scene_fn 이 있는 실사용에서는 scene 코드/풀이 지난 실행과 같을 때만 후보를 재사용한다(black_max 같은 임계나 풀이 바뀌면 같은 경계라도 multi 가 달라질 수 있어 전부 다시 읽는다).
         # scene_fn 이 없는 점검용(check.py)은 예전처럼 항상 재사용/근사
         reuse = self.scene_fn is None or self.M.get(s, {}).get("scene_in") == ck
@@ -223,6 +254,12 @@ class Run:
         return cards
 
     def run(self, slugs, force=()):
+        self.root.mkdir(parents=True, exist_ok=True)
+        with _lock(self.root / ".run.lock"):
+            self.M = self._load()                                  # 잠금을 잡은 뒤에 읽는다: 먼저 끝낸 실행의 기록을 덮어쓰지 않게
+            return self._run(slugs, force)
+
+    def _run(self, slugs, force):
         P = self.plan(slugs)
         try:
             for s, st in P.items():
@@ -265,6 +302,18 @@ def selftest():
     assert "x" not in r.partial
     r.M["x"]["scene_in"] = "다른키"; calls.clear()
     assert r.scene("x") == 2 and len(calls) == 2                     # 코드/풀이 바뀌면 같은 경계도 전부 다시
+    r.R["x"] = dict(path="a.mp4", size=1); r.scene("x"); calls.clear()
+    assert r.scene("x") == 0 and not calls                           # 같은 영상이면 재사용
+    r.R["x"]["path"] = "b.mp4"
+    assert r.scene("x") == 2                                         # 읽는 NAS 영상 경로가 바뀌면 같은 경계도 다시(리뷰 B-4)
+    with _lock(root / ".l"):
+        try:
+            with _lock(root / ".l", wait=0.5):
+                raise SystemExit("잠금이 겹쳤다")
+        except AssertionError:
+            pass                                                     # 같은 root 의 두 번째 실행은 첫 실행이 끝날 때까지 못 들어온다(리뷰 B-3)
+    with _lock(root / ".l", wait=0.5):
+        pass                                                         # 풀린 뒤에는 다시 잡는다
     print("selftest ok")
 
 
