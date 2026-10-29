@@ -234,7 +234,7 @@ def make(card, src, off, wav, slug_dir, name, date, enc_log, likely=False, no_ct
     sfx = f"_{'R' if tier == 'review' else 'O'}_{code_of(card.get('tier_why'))}" + ("-L" if card.get("likely") else "") if tier in ("review", "optional") else ""    # 등급 약어(R/O)+근거 코드, -L = likely 조건 통과
     base = f"{date[2:4]}{date[5:7]}{date[8:10]}_{name.replace(' ', '')}_{hms6(ns)}-{hms6(ne)}_{int(dur // 60)}m{int(dur % 60):02d}s{sfx}" + ("_likely미검증" if likely else "")
     mp4, ctx, js = (slug_dir / f"{base}{x}" for x in (".mp4", "_ctx20.mp4", ".json"))
-    if js.exists() and (j0 := json.loads(js.read_text(encoding="utf8"))).get("ok") and j0.get("rule") == RULE and mp4.exists() and (no_ctx or ctx.exists()):
+    if js.exists() and (j0 := json.loads(js.read_text(encoding="utf8"))).get("ok") and j0.get("rule") == RULE and mp4.exists() and (no_ctx or ctx.exists())             and abs(j0.get("vod_start", -1) - s) < 0.005 and abs(j0.get("vod_end", -1) - e) < 0.005:      # 컷이 같을 때만 재사용: 파일 이름이 초 단위라 컷이 0.2초 바뀌어도 이름이 같아 옛 클립이 남던 문제(settle)
         return j0
     t_start = time.time()
     fade_d = min(FADE, dur - (song_e - s if wav else dur - TAIL))      # 곡 끝~컷 안에서만(곡 끝 +TAIL 초 안에서는 곡 끝에서 시작, tail_cut 연장으로 더 길면 컷 앞 FADE 초)
