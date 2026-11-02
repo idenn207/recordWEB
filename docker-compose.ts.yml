@@ -14,9 +14,9 @@ services:
     stop_grace_period: 30s
     ports:
       # NAS의 LAN IP에만 게시한다(앱 레벨 로그인이 없으므로 네트워크 경계가 유일한 접근 통제).
-      - '192.168.0.10:5080:5000'
+      - '${RECORDWEB_BIND_IP:?.env에 값을 넣으세요}:5080:5000'
     volumes:
-      - /volume3/docker/recordweb/json:/app/json
-      - /volume1/storage/recordweb-files/chzzk:/app/chzzk
+      - ${RECORDWEB_JSON_DIR:?.env에 값을 넣으세요}:/app/json
+      - ${RECORDWEB_CHZZK_DIR:?.env에 값을 넣으세요}:/app/chzzk
       # X 스페이스 녹음(.m4a). 채널의 저장 경로 기본값이 xspaces 이다.
-      - /volume1/storage/recordweb-files/xspaces:/app/xspaces
+      - ${RECORDWEB_XSPACES_DIR:?.env에 값을 넣으세요}:/app/xspaces

@@ -32,11 +32,11 @@ Windows 개발 환경에서는 `dependent/` 안의 번들 바이너리를 자동
 
 ## NAS 배포 (Docker)
 
-소스를 NAS의 `/volume3/docker/recordweb-ts/`에 올린 뒤, root 권한으로 스크립트를 실행합니다.
+소스를 NAS의 배포 폴더에 올리고 `.env.example`을 `.env`로 복사해 값을 채운 뒤, root 권한으로 스크립트를 실행합니다.
 녹화 중인 채널이 있으면 확인을 묻고, json 백업 → 이미지 빌드(기존 컨테이너 유지) → 교체 → 응답 확인 순서로 진행하며 롤백 명령을 출력합니다.
 
 ```bash
-ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'
+ssh -t <nas-ssh-host> 'sudo sh <배포 폴더>/docker/deploy-nas.sh'
 ```
 
 수동으로 하려면 기존 컨테이너를 먼저 중지한 뒤 `docker compose -f docker-compose.ts.yml up -d --build`를 실행합니다.

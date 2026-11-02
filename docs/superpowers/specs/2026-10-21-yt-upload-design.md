@@ -6,7 +6,7 @@
 
 원래 요청은 두 기능이다: (1) X 스페이스 녹음, (2) YouTube 자동 업로드. 서로 독립된 서브시스템이라 사이클을 나눈다.
 
-- **이 문서: YouTube 업로드.** 대상은 Chzzk 녹화본만이다. 기존 NAS 배치 스크립트(`/volume3/docker/yt-upload/upload.py`)를 recordWEB 앱 안으로 옮긴다.
+- **이 문서: YouTube 업로드.** 대상은 Chzzk 녹화본만이다. 기존 NAS 배치 스크립트(`<nas-docker-dir>/yt-upload/upload.py`)를 recordWEB 앱 안으로 옮긴다.
 - **다음 사이클: X 스페이스 녹음.** 프로필 등록, 라이브 스페이스 감지, master URL 해석, 녹음을 다룬다. `json/xchannels.json`(`users`에 `@핸들` 10개, `recheckInterval` 120)과 `xcookie.txt`가 이미 있으니 그 설정을 이어받는 방향으로 별도 브레인스토밍을 한다.
 
 ## 합의한 요구사항
@@ -79,10 +79,10 @@
 
 ## 마이그레이션과 배포
 
-- 기존 `/volume3/docker/yt-upload/state.json`(99건 전부 완료)을 `/app/json/yt_upload_state.json`으로 복사해 기존 업로드가 중복되지 않게 한다.
+- 기존 `<nas-docker-dir>/yt-upload/state.json`(99건 전부 완료)을 `/app/json/yt_upload_state.json`으로 복사해 기존 업로드가 중복되지 않게 한다.
 - `yt_token.json`도 같은 방식으로 `/app/json`에 옮긴다. 이 파일은 시크릿이므로 저장소에 넣지 않고, `.gitignore`와 `.dockerignore`에 `json/`이 이미 제외돼 있는지 구현 시 확인한다.
 - `docker-compose.yml`의 `json` 볼륨이 이미 `/app/json`에 매핑돼 있어 compose 변경은 필요 없다.
-- 기존 `/volume3/docker/yt-upload/`는 백업으로 남겨 두고 더는 실행하지 않는다.
+- 기존 `<nas-docker-dir>/yt-upload/`는 백업으로 남겨 두고 더는 실행하지 않는다.
 
 ## 테스트
 

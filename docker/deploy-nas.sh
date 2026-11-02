@@ -1,6 +1,6 @@
 #!/bin/sh
 # NAS에서 Python 컨테이너를 TypeScript 컨테이너로 교체한다. root 권한이 필요하다:
-#   ssh -t nas-claude 'sudo sh /volume3/docker/recordweb-ts/docker/deploy-nas.sh'
+#   ssh -t <nas-ssh-host> 'sudo sh <배포 폴더>/docker/deploy-nas.sh'
 #
 # 순서: 녹화 중 확인 → json 백업 → 이미지 빌드(기존 컨테이너는 계속 동작) → 컨테이너 교체 → 확인.
 # 빌드를 먼저 끝내므로 녹화가 끊기는 시간은 교체 구간(수십 초)뿐이다.
@@ -8,11 +8,12 @@
 set -eu
 
 DOCKER=/usr/local/bin/docker
-NEW=/volume3/docker/recordweb-ts
-OLD=/volume3/docker/recordweb
-HOST=192.168.0.10:5080
+NEW=$(cd "$(dirname "$0")/.." && pwd)
 
 cd "$NEW"
+# 배포 값은 커밋하지 않는 .env에 둔다(.env.example 참고). docker compose도 같은 파일을 읽는다.
+. ./.env
+HOST=$RECORDWEB_BIND_IP:5080
 echo "[docker] $($DOCKER --version)"
 
 echo "== 1. 지금 녹화 중인 채널"
@@ -26,11 +27,11 @@ if [ "$N" != "0" ] && [ "${FORCE:-}" != "1" ]; then
 fi
 
 echo "== 2. json 백업"
-BK="$OLD/json.bak-$(date +%Y%m%d-%H%M%S)"
-cp -a "$OLD/json" "$BK"
+BK="$RECORDWEB_JSON_DIR.bak-$(date +%Y%m%d-%H%M%S)"
+cp -a "$RECORDWEB_JSON_DIR" "$BK"
 echo "  $BK"
 
-mkdir -p /volume1/storage/recordweb-files/xspaces  # X 스페이스 녹음 폴더 (compose 볼륨)
+mkdir -p "$RECORDWEB_XSPACES_DIR"  # X 스페이스 녹음 폴더 (compose 볼륨)
 echo "== 3. 이미지 빌드 (기존 컨테이너는 계속 동작)"
 # NAS의 Docker에는 buildx가 없어 기본(레거시) 빌더를 쓴다. 이 빌더는 Dockerfile.ts.dockerignore를 읽지 않으므로 .dockerignore로 복사한다.
 cp Dockerfile.ts.dockerignore .dockerignore
