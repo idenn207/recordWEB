@@ -39,3 +39,6 @@ Thumbs.db
 
 node_modules/
 dist/
+
+# 배포 값 (.env.example 참고)
+.env

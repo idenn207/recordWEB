@@ -11,9 +11,9 @@ services:
       # uvicorn.Config host="0.0.0.0", config.json의 port:5000)은 그대로 두고,
       # host 쪽 게시 포트만 5080으로 옮겼다 — 5000/5001은 DSM 관리 UI(nginx)가
       # 이미 쓰고 있어 충돌한다(배포 중 실제로 확인됨, 계획 당시에는 몰랐음).
-      - "192.168.0.10:5080:5000"
+      - "${RECORDWEB_BIND_IP:?.env에 값을 넣으세요}:5080:5000"
     volumes:
-      # 시크릿/설정 — volume3(설정 볼륨)
-      - /volume3/docker/recordweb/json:/app/json
-      # 실제 녹화 파일 — volume1(대용량 데이터 볼륨)
-      - /volume1/storage/recordweb-files/chzzk:/app/chzzk
+      # 시크릿/설정 — 설정 볼륨
+      - ${RECORDWEB_JSON_DIR:?.env에 값을 넣으세요}:/app/json
+      # 실제 녹화 파일 — 대용량 데이터 볼륨
+      - ${RECORDWEB_CHZZK_DIR:?.env에 값을 넣으세요}:/app/chzzk
